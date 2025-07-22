@@ -20,7 +20,7 @@ bot.start(async (ctx) => {
 
   const referralParam = `?startapp=${userId}`;
   const startGameLink = `https://t.me/MinimorphBot?startapp=ref${userId}`;
-  const howToPlayLink = 'https://minimorph.space/how-to-play';
+  const howToPlayLink = 'https://minimorph.space/';
   const communityLink = 'https://t.me/minimorph'; // замени на свою ссылку
 
   const keyboard = {

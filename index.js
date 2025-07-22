@@ -1,13 +1,13 @@
 import express from 'express';
+import referralRoute from "./referral.js";
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const referralRoute = require("./referral");
 
 app.use(express.json());
-app.use("/", referralRoute); // теперь маршрут доступен по /referral
+app.use("/referral", referralRoute);
 const port = process.env.PORT || 3000;
 
 const bot = new Telegraf(process.env.BOT_TOKEN);

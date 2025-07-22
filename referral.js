@@ -1,6 +1,6 @@
-const express = require("express");
-const { doc, getDoc, setDoc, updateDoc, arrayUnion } = require("firebase/firestore");
-const { db } = require("./firebase"); // убедись, что этот путь правильный
+import express from "express";
+import { doc, getDoc, setDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { db } from "./firebase.js"; // Проверь путь, добавь .js если нужно
 
 const router = express.Router();
 
@@ -46,4 +46,4 @@ router.post("/referral", async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

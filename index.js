@@ -26,10 +26,10 @@ bot.start(async (ctx) => {
   const keyboard = {
     inline_keyboard: [
       [
-        {
-          text: '🎮 Start Game',
-          web_app: { url: startGameLink }
-        }
+      {
+        text: '🎮 Start Game',
+        url: startGameLink
+      }
       ],
       [
         { text: '📘 How to Play', url: howToPlayLink }

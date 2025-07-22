@@ -19,7 +19,7 @@ bot.start(async (ctx) => {
   }
 
   const referralParam = `?startapp=${userId}`;
-  const startGameLink = `https://minimorph-miniapp.netlify.app?ref=${userId}`;
+  const startGameLink = `https://t.me/MinimorphBot?startapp=ref${userId}`;
   const howToPlayLink = 'https://minimorph.space/how-to-play';
   const communityLink = 'https://t.me/minimorph_community'; // замени на свою ссылку
 

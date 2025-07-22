@@ -15,18 +15,32 @@ bot.start(async (ctx) => {
   }
 
   const referralParam = `?startapp=${userId}`;
-  const startGameLink = `https://t.me/MinimorphBot/start${referralParam}`;
-  const howToPlayLink = 'https://minimorph-miniapp.netlify.app/how-to-play';
+  const startGameLink = `https://minimorph-miniapp.netlify.app?ref=${userId}`;
+  const howToPlayLink = 'https://minimorph.space/how-to-play';
   const communityLink = 'https://t.me/minimorph_community'; // замени на свою ссылку
 
-  await ctx.reply(
+  const keyboard = {
+    inline_keyboard: [
+      [
+        {
+          text: '🎮 Start Game',
+          web_app: { url: startGameLink }
+        }
+      ],
+      [
+        { text: '📘 How to Play', url: howToPlayLink }
+      ],
+      [
+        { text: '👥 Join Community', url: communityLink }
+      ]
+    ]
+  };
+
+    await ctx.reply(
     `👾 Hey 👋, ${ctx.from.first_name}! Welcome to Minimorph game!`,
-    Markup.inlineKeyboard([
-      [Markup.button.url('🎮 Start Game', `https://t.me/MinimorphBot/start${referralParam}`)],
-      [Markup.button.url('📘 How to Play', 'https://minimorph.space/telegram-game')],
-      [Markup.button.url('👥 Join Community', 'https://t.me/minimorph')]
-    ])
+    { reply_markup: keyboard }
   );
+  
 });
 
 bot.launch();

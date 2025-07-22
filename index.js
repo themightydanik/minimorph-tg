@@ -14,18 +14,33 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start(async (ctx) => {
   const ref = ctx.startPayload;
-  const userId = ctx.from.id.toString();
+  const telegramId = ctx.from.id.toString();
 
   // Если есть реферальный ID и он не совпадает с пользователем
-  if (ref && ref !== userId) {
-    console.log(`Пользователь ${userId} пришёл по ссылке ${ref}`);
+  if (ref && ref !== telegramId) {
+    console.log(`Пользователь ${telegramId} пришёл по ссылке ${ref}`);
     // Здесь можно сохранить в базу
-  }
+    try {
+    const response = await fetch('https://minimorph-tg.onrender.com/referral', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegramId,
+        invitedBy: ref
+      })
+    });
 
-  const referralParam = `?startapp=${userId}`;
-  const startGameLink = `https://t.me/MinimorphBot?startapp=ref${userId}`;
+    const result = await response.text();
+    console.log("Referral API response:", result);
+  } catch (error) {
+    console.error("Failed to send referral data:", error);
+  }
+}
+
+  const referralParam = `?startapp=${telegramId}`;
+  const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
   const howToPlayLink = 'https://minimorph.space/';
-  const communityLink = 'https://t.me/minimorph'; // замени на свою ссылку
+  const communityLink = 'https://t.me/minimorph';
 
   const keyboard = {
     inline_keyboard: [

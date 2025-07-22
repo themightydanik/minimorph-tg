@@ -5,15 +5,15 @@ import { db } from "./firebase.js"; // Проверь путь, добавь .js
 const router = express.Router();
 
 router.post("/referral", async (req, res) => {
-  const { userId, referredBy } = req.body;
+  const { telegramId, invitedBy } = req.body;
 
-  if (!userId || !referredBy || userId === referredBy) {
+  if (!telegramId || !invitedBy || telegramId === invitedBy) {
     return res.status(400).send("Invalid data");
   }
 
   try {
-    const userRef = doc(db, "users", userId);
-    const referrerRef = doc(db, "users", referredBy);
+    const userRef = doc(db, "users", telegramId);
+    const referrerRef = doc(db, "users", invitedBy);
 
     const userSnap = await getDoc(userRef);
     const referrerSnap = await getDoc(referrerRef);
@@ -25,18 +25,18 @@ router.post("/referral", async (req, res) => {
     if (!userSnap.exists()) {
       await setDoc(userRef, {
         points: 0,
-        invitedBy: referredBy,
+        invitedBy: invitedBy,
         invitedUsers: [],
       });
     } else {
       const userData = userSnap.data();
       if (!userData.invitedBy) {
-        await updateDoc(userRef, { invitedBy: referredBy });
+        await updateDoc(userRef, { invitedBy: invitedBy });
       }
     }
 
     await updateDoc(referrerRef, {
-      invitedUsers: arrayUnion(userId),
+      invitedUsers: arrayUnion(telegramId),
     });
 
     res.send("Referral recorded");

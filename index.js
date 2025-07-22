@@ -1,6 +1,10 @@
+import express from 'express';
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 dotenv.config();
+
+const app = express();
+const port = process.env.PORT || 3000;
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -44,4 +48,15 @@ bot.start(async (ctx) => {
 });
 
 bot.launch();
-console.log('Bot is running...');
+
+// Простой HTTP-сервер для Render
+app.get('/', (req, res) => {
+  res.send('Bot is running');
+});
+
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

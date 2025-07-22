@@ -47,7 +47,11 @@ bot.start(async (ctx) => {
   
 });
 
-bot.launch();
+// Оборачиваем запуск бота в асинхронную функцию
+(async () => {
+  await bot.telegram.deleteWebhook();
+  await bot.launch();
+})();
 
 // Простой HTTP-сервер для Render
 app.get('/', (req, res) => {

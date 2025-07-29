@@ -39,7 +39,7 @@ bot.start(async (ctx) => {
 
   const referralParam = `?startapp=${telegramId}`;
   const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
-  const howToPlayLink = 'https://minimorph.space/';
+  const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
   const communityLink = 'https://t.me/minimorph';
 
   const keyboard = {

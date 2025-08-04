@@ -2,6 +2,7 @@ import express from 'express';
 import referralRoute from "./referral.js";
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 dotenv.config();
 
 const app = express();
@@ -80,6 +81,15 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
+
+setInterval(() => {
+  fetch(`https://minimorph-tg.onrender.com/`).then(() => {
+    console.log("🔁 Self-ping to prevent Render sleep");
+  }).catch((err) => {
+    console.error("❌ Self-ping failed:", err);
+  });
+}, 5 * 60 * 1000); // каждые 5 минут
+
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

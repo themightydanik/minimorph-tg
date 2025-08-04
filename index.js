@@ -27,10 +27,13 @@ bot.start(async (ctx) => {
       const response = await fetch('https://minimorph-tg.onrender.com/referral', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telegramId,
-          invitedBy: ref
-        })
+body: JSON.stringify({
+  telegramId,
+  invitedBy: ref,
+  username: ctx.from.username,
+  first_name: ctx.from.first_name
+})
+
       });
       const result = await response.text();
       console.log("📨 Referral API response:", result);

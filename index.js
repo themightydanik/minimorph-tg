@@ -13,8 +13,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 app.use(express.json());
 app.use("/referral", referralRoute);
 
-// Webhook setup
-bot.telegram.setWebhook(`https://minimorph-tg.onrender.com/telegram`);
+// Bot webhook endpoint
 app.use(bot.webhookCallback("/telegram"));
 
 // Bot logic
@@ -63,14 +62,22 @@ app.get("/", (req, res) => {
   res.send("✅ Bot is running");
 });
 
-// Prevent sleep (self-ping every 5 mins)
+// Prevent Render sleep
 setInterval(() => {
   fetch(`https://minimorph-tg.onrender.com/`)
     .then(() => console.log("🔁 Self-ping to prevent Render sleep"))
     .catch((err) => console.error("❌ Self-ping failed:", err));
 }, 5 * 60 * 1000);
 
-// Start server
-app.listen(port, () => {
+// Start server and register webhook
+app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
+
+  try {
+    const webhookUrl = `https://minimorph-tg.onrender.com/telegram`;
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log("✅ Webhook set to:", webhookUrl);
+  } catch (err) {
+    console.error("❌ Failed to set webhook:", err);
+  }
 });

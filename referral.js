@@ -7,6 +7,10 @@ const router = express.Router();
 router.post("/referral", async (req, res) => {
   const { telegramId, invitedBy, username, first_name } = req.body;
 
+    // Удаляем подчёркивания, если случайно попали
+  telegramId = telegramId?.replace(/^_/, '');
+  invitedBy = invitedBy?.replace(/^_/, '');
+
   if (!telegramId || !invitedBy || telegramId === invitedBy) {
     return res.status(400).send("Invalid data");
   }

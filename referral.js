@@ -1,15 +1,16 @@
 import express from "express";
 import { doc, getDoc, setDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "./firebase.js";
+import { processReferralRewards } from "./referralRewards.js";
 
 const router = express.Router();
+const normalizeId = (id) => id?.toString().replace(/^_+/, "") || null;
 
 router.post("/referral", async (req, res) => {
-  const { telegramId, invitedBy, username, first_name } = req.body;
+  let { telegramId, invitedBy, username, first_name } = req.body;
 
-    // Удаляем подчёркивания, если случайно попали
-  telegramId = telegramId?.replace(/^_/, '');
-  invitedBy = invitedBy?.replace(/^_/, '');
+  telegramId = normalizeId(telegramId);
+  invitedBy = normalizeId(invitedBy);
 
   if (!telegramId || !invitedBy || telegramId === invitedBy) {
     return res.status(400).send("Invalid data");
@@ -26,19 +27,23 @@ router.post("/referral", async (req, res) => {
       return res.status(400).send("Referrer does not exist");
     }
 
-    if (!userSnap.exists()) {
-      // Создаём полноценного нового пользователя
-      const newUser = {
-        invitedBy,
-        invitedUsers: [],
-        completedTasks: {},
-        points: 100,
-        masterRewards: 0,
-        earned: {},
-        username: username || first_name || `User-${telegramId}`,
-      };
+    const defaultData = {
+      completedTasks: {},
+      earned: {},
+      energy: 0,
+      invitedBy,
+      lastRecordedPoints: 0,
+      masterRewards: 0,
+      points: 0,
+      purchasedCards: [],
+      refEarnings: 0,
+      tickets: 10,
+      tps: 0,
+      username: username || first_name || `User-${telegramId}`,
+    };
 
-      await setDoc(userRef, newUser);
+    if (!userSnap.exists()) {
+      await setDoc(userRef, defaultData);
     } else {
       const userData = userSnap.data();
       if (!userData.invitedBy) {
@@ -50,7 +55,10 @@ router.post("/referral", async (req, res) => {
       invitedUsers: arrayUnion(telegramId),
     });
 
-    res.send("Referral recorded");
+    // Сразу начисляем бонус
+    await processReferralRewards(telegramId);
+
+    res.send("Referral recorded and bonus applied");
   } catch (error) {
     console.error("❌ Error handling referral:", error);
     res.status(500).send("Server error");

@@ -1,5 +1,5 @@
 import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "./firebase.js";
 
 // Удаляет подчеркивания в начале ID
 const normalizeId = (id) => id.toString().replace(/^_+/, "");

@@ -80,7 +80,7 @@ function initSlotModule({
     }
     const data = await ensureSlotFields(user.ref, user.data);
     const tickets = data.slotTickets || 0;
-    const msg = `🎰 Slot Machine\n\nTicket balance: ${tickets}\nPrice: ${PRICE_STARS} ⭐ per purchase (you get ${TICKETS_PER_PURCHASE} ticket(s)).\n\nPlay: Send emoji to chat 🎰 — Telegram will spin the slot.\n(The admin can issue tickets via /grantpass or via HTTP /slot/admin/grant)`;
+    const msg = `🎰 Slot Machine\n\nTicket balance: ${tickets}\nPrice: ${PRICE_STARS} ⭐ per purchase (you get ${TICKETS_PER_PURCHASE} ticket(s)).\n\nPlay: Send emoji to chat 🎰 — Telegram will spin the slot.`;
     await ctx.reply(msg);
   });
 

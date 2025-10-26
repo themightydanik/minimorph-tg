@@ -40,6 +40,10 @@ router.post("/referral", async (req, res) => {
       tickets: 10,
       tps: 0,
       username: username || first_name || `User-${telegramId}`,
+      slotTickets: 0,        // Количество оставшихся вращений
+      slotWins: 0,           // Количество побед
+      slotSpentStars: 0,     // Сколько звёзд потратил
+      slotEarnedStars: 0     // Сколько звёзд выиграл
     };
 
     if (!userSnap.exists()) {

@@ -267,63 +267,25 @@ function initSlotModule({
       // Reply in chat
       let replyText = `🎰 Result: ${outcome}\n`;
       if (reward > 0) {
-        replyText += `💰 Congratulations, you won. ${reward} ⭐!\n`;
-        replyText += `⤵️ Starting automatic payment...`;
-        await ctx.reply(replyText);
+replyText += `💰 Congratulations, you won ${reward} ⭐!\n`;
+replyText += `💵 Tap "Withdraw Stars" to receive your winnings.`;
+await ctx.reply(replyText);
 
-        // Try to payout Stars automatically
-        try {
-          // Use low-level call to Telegram API to send Stars.
-          // Method: payments.sendStarsForm or payments.sendStarsTransaction OR appropriate method.
-          // This call below is a best-effort: exact fields depend on Telegram Bot API version.
-          // See Telegram docs: Bot Payments / Stars.
-          //
-          // NOTE: if your bot API / Telegraf version does not expose a helper,
-          // bot.telegram.callApi(...) allows calling arbitrary method names.
-          //
-          // IMPORTANT:
-          // - For payments in Stars, provider_token is usually omitted (empty string).
-          // - The method name and params can change across Telegram API versions.
-          // - If this call fails, the route /slot/admin/payout-stars allows admin to payout manually.
-          //
-          const payoutParams = {
-            // example params — adapt if your environment needs different names
-            user_id: parseInt(telegramId, 10),
-            amount: reward, // amount in Stars units
-            // optional fields:
-            // reason: 'Slot machine reward',
-            // note: `You won ${reward} ⭐ in Minimorph slot!`
-          };
+// Сохраняем выигрыш как ожидающий выплаты
+await updateDoc(user.ref, {
+  pendingPayoutStars: (data.pendingPayoutStars || 0) + reward,
+});
 
-          // Try calling a Stars payout API method (best-effort).
-          // This may succeed or fail depending on your bot/Telegram configuration.
-          // If it fails, we log error and notify admin to payout manually via /slot/admin/payout-stars.
-          await bot.telegram.callApi("payments.sendStarsForm", payoutParams);
-
-          // If call didn't throw, assume success
-          await ctx.reply(`✅ ${reward} ⭐ payment successful. Enjoy!`);
-          // Also update DB: slotSpentStars is only for purchases; slotEarnedStars already updated above.
-        } catch (payoutErr) {
-          console.error("Auto payout failed:", payoutErr);
-          await ctx.reply(
-            `✅ Your payment has been added to the queue and will be processed within a few hours.`
-          );
-          // Optionally: mark an "unpaidWins" array / counter in DB for admin action
-          await updateDoc(user.ref, {
-            pendingPayoutStars: (data.pendingPayoutStars || 0) + reward,
-          });
-
-          // ⚠️ Notify admin about failed payout
+// Уведомляем админа
 try {
   await bot.telegram.sendMessage(
     ADMIN_ID,
-    `⚠️ Payout pending!\nUser: @${msg.from.username || msg.from.id}\nReward: ${reward} ⭐\nNeeds manual payout.`
+    `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐\nAdded to pending payout balance.`
   );
 } catch (notifyErr) {
   console.error("Failed to notify admin:", notifyErr);
 }
 
-        }
       } else {
         replyText += `😕 Sorry, didn't win anything. Try again!`;
         await ctx.reply(replyText);

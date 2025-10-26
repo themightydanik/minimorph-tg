@@ -132,9 +132,11 @@ bot.action('withdraw_stars', async (ctx) => {
     return ctx.reply("⚠️ You don’t have any winnings yet.");
   }
 
-  const balance = userSnap.data().balance || 0;
-  if (balance < 50) {
-    return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${balance} ⭐️`);
+ const data = userSnap.data();
+  const pending = data.pendingPayoutStars || 0;
+
+  if (pending < 50) {
+    return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
   }
 
   try {
@@ -142,8 +144,8 @@ bot.action('withdraw_stars', async (ctx) => {
     // Пример:
     // await bot.telegram.sendStars(userId, balance);
 
-    await userRef.update({ balance: 0 });
-    await ctx.reply(`✅ The payout ${balance} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
+    await userRef.update({ pendingPayoutStars: 0 });
+    await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
   } catch (error) {
     console.error("❌ Withdrawal error:", error);
     await ctx.reply("🚫 Error during withdrawal. Please try again later.");

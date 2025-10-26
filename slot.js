@@ -120,7 +120,7 @@ function initSlotModule({
       );
     } catch (err) {
       console.error("buyticket error:", err);
-      return ctx.reply("Ошибка при создании инвойса. Свяжись с админом.");
+      return ctx.reply("Error creating invoice. Contact the admin.");
     }
   });
 
@@ -306,12 +306,23 @@ function initSlotModule({
         } catch (payoutErr) {
           console.error("Auto payout failed:", payoutErr);
           await ctx.reply(
-            `⚠️ Unable to transfer stars automatically. The admin will receive a notification and transfer them manually.\nYour winnings have been saved in your profile and are awaiting payment.`
+            `✅ Your payment has been added to the queue and will be processed within a few hours.`
           );
           // Optionally: mark an "unpaidWins" array / counter in DB for admin action
           await updateDoc(user.ref, {
             pendingPayoutStars: (data.pendingPayoutStars || 0) + reward,
           });
+
+          // ⚠️ Notify admin about failed payout
+try {
+  await bot.telegram.sendMessage(
+    ADMIN_ID,
+    `⚠️ Payout pending!\nUser: @${msg.from.username || msg.from.id}\nReward: ${reward} ⭐\nNeeds manual payout.`
+  );
+} catch (notifyErr) {
+  console.error("Failed to notify admin:", notifyErr);
+}
+
         }
       } else {
         replyText += `😕 Sorry, didn't win anything. Try again!`;

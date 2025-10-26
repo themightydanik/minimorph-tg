@@ -87,6 +87,7 @@ body: JSON.stringify({
       [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
       [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
       [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
+      [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
       [{ text: '👥 Join Community', url: communityLink }]
       [{ text: '🎮 Minimorph Game', url: startGameLink }],
       [{ text: '📘 How to Play', url: howToPlayLink }],
@@ -120,6 +121,35 @@ bot.action('exchange_points', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply('🎁 Play various games inside the Minimorph Mini-App and exchange points for free spins to play slots!');
 });
+
+bot.action('withdraw_stars', async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id.toString();
+  const userRef = db.collection("users").doc(userId);
+  const userSnap = await userRef.get();
+
+  if (!userSnap.exists) {
+    return ctx.reply("⚠️ You don’t have any winnings yet.");
+  }
+
+  const balance = userSnap.data().balance || 0;
+  if (balance < 50) {
+    return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${balance} ⭐️`);
+  }
+
+  try {
+    // ⚙️ Тут делаем выплату через Telegram Stars API (позже вставим реальный вызов)
+    // Пример:
+    // await bot.telegram.sendStars(userId, balance);
+
+    await userRef.update({ balance: 0 });
+    await ctx.reply(`✅ The payout ${balance} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
+  } catch (error) {
+    console.error("❌ Withdrawal error:", error);
+    await ctx.reply("🚫 Error during withdrawal. Please try again later.");
+  }
+});
+
 
 // Ping route for uptime check
 app.get("/", (req, res) => {

@@ -5,22 +5,27 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 dotenv.config();
 import initSlotModule from "./slot.js";
+import { db } from "./firebase.js";
 
 const app = express();
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // после создания bot и app...
-const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "YOUR_ADMIN_TELEGRAM_ID";
-const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "replace-with-strong-secret";
+const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "293621311"; // твой admin id
+const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "super-secret";
 
 const slotRouter = initSlotModule({
   bot,
   db,
   ADMIN_ID: SLOT_ADMIN_ID,
   ADMIN_SECRET: SLOT_ADMIN_SECRET,
-  spinsPerTicket: 1,
-  rewards: { jackpot: 100, pair: 5 }
+  PRICE_STARS: parseInt(process.env.SLOT_PRICE_STARS || "20", 10),
+  TICKETS_PER_PURCHASE: parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10),
+  JACKPOT_REWARD: parseInt(process.env.SLOT_JACKPOT_REWARD || "100", 10),
+  PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "5", 10),
+  NEWBIE_SPINS: parseInt(process.env.SLOT_NEWBIE_SPINS || "9", 10),
+  NEWBIE_MULTIPLIER: parseFloat(process.env.SLOT_NEWBIE_MULTIPLIER || "1.3"),
 });
 
 app.use("/slot", slotRouter);

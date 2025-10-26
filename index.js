@@ -51,6 +51,9 @@ bot.command("terms", async (ctx) => {
 
 // Bot logic
 bot.start(async (ctx) => {
+  console.log("⚡ /start triggered!");
+  console.log("From:", ctx.from);
+  console.log("Start payload:", ctx.startPayload);
   const ref = ctx.startPayload;
   const telegramId = ctx.from.id.toString();
 

@@ -34,9 +34,6 @@ app.use("/slot", slotRouter);
 app.use(express.json());
 app.use("/referral", referralRoute);
 
-// Bot webhook endpoint
-app.use(bot.webhookCallback("/telegram"));
-
 // === COMMANDS REQUIRED BY TELEGRAM ===
 bot.command(["support", "paysupport"], async (ctx) => {
   await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
@@ -151,6 +148,9 @@ bot.action('withdraw_stars', async (ctx) => {
     await ctx.reply("🚫 Error during withdrawal. Please try again later.");
   }
 });
+
+// Bot webhook endpoint
+app.use(bot.webhookCallback("/telegram"));
 
 
 // Ping route for uptime check

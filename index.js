@@ -13,7 +13,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // после создания bot и app...
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "293621311"; // твой admin id
-const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "super-secret";
+const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 
 const slotRouter = initSlotModule({
   bot,
@@ -36,6 +36,21 @@ app.use("/referral", referralRoute);
 
 // Bot webhook endpoint
 app.use(bot.webhookCallback("/telegram"));
+
+// === COMMANDS REQUIRED BY TELEGRAM ===
+bot.command(["support", "paysupport"], async (ctx) => {
+  await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
+});
+
+bot.command("terms", async (ctx) => {
+  await ctx.reply(
+    "📜 Terms of Use:\n\n" +
+    "1. Playing the slot machine costs Telegram Stars.\n" +
+    "2. Rewards are paid out in Telegram Stars automatically.\n" +
+    "3. Gambling responsibly — play for fun.\n" +
+    "4. For help, contact @Deviola_programmer."
+  );
+});
 
 // Bot logic
 bot.start(async (ctx) => {
@@ -69,9 +84,12 @@ body: JSON.stringify({
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '🎮 Start Game', url: startGameLink }],
-      [{ text: '📘 How to Play', url: howToPlayLink }],
+      [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
+      [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
+      [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
       [{ text: '👥 Join Community', url: communityLink }]
+      [{ text: '🎮 Minimorph Game', url: startGameLink }],
+      [{ text: '📘 How to Play', url: howToPlayLink }],
     ]
   };
 
@@ -79,6 +97,28 @@ body: JSON.stringify({
     `👾 Hey 👋, ${ctx.from.first_name}! Welcome to Minimorph game!`,
     { reply_markup: keyboard }
   );
+});
+
+// === CALLBACK HANDLERS ===
+bot.action('play_slot', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply('🎰 To play, simply send the emoji 🎰 in this chat — Telegram will spin the slot for you!');
+});
+
+bot.action('buy_ticket', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply('💳 Processing your ticket purchase...');
+  try {
+    await handleBuyTicket(ctx); // 👉 сразу запускает покупку
+  } catch (err) {
+    console.error(err);
+    await ctx.reply('❌ Failed to initiate purchase. Try again later.');
+  }
+});
+
+bot.action('exchange_points', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply('🎁 Play various games inside the Minimorph Mini-App and exchange points for free spins to play slots!');
 });
 
 // Ping route for uptime check

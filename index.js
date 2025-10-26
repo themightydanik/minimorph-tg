@@ -4,10 +4,26 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 dotenv.config();
+import initSlotModule from "./slot.js";
 
 const app = express();
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// после создания bot и app...
+const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "YOUR_ADMIN_TELEGRAM_ID";
+const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "replace-with-strong-secret";
+
+const slotRouter = initSlotModule({
+  bot,
+  db,
+  ADMIN_ID: SLOT_ADMIN_ID,
+  ADMIN_SECRET: SLOT_ADMIN_SECRET,
+  spinsPerTicket: 1,
+  rewards: { jackpot: 100, pair: 5 }
+});
+
+app.use("/slot", slotRouter);
 
 // Middleware
 app.use(express.json());

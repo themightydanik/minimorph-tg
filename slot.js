@@ -108,16 +108,16 @@ function initSlotModule({
 
       // Note: some Telegram/lib versions want prices amounts as integers in "cents"
       // but for Stars it's custom — these examples work in practice in many bots.
-      await bot.telegram.sendInvoice(
-        chatId,
-        title,
-        description,
-        payload,
-        providerToken,
-        startParameter,
-        currency,
-        prices
-      );
+await bot.telegram.sendInvoice(chatId, {
+  title: title,
+  description: description,
+  payload: payload,
+  provider_token: providerToken, // пустая строка для Stars
+  start_parameter: startParameter,
+  currency: currency,
+  prices: prices
+});
+
     } catch (err) {
       console.error("buyticket error:", err);
       return ctx.reply("Error creating invoice. Contact the admin.");

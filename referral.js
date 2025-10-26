@@ -40,10 +40,13 @@ router.post("/referral", async (req, res) => {
       tickets: 10,
       tps: 0,
       username: username || first_name || `User-${telegramId}`,
-      slotTickets: 0,        // Количество оставшихся вращений
-      slotWins: 0,           // Количество побед
-      slotSpentStars: 0,     // Сколько звёзд потратил
-      slotEarnedStars: 0     // Сколько звёзд выиграл
+slotTickets: 0,        // 🎟 Кол-во оставшихся вращений
+slotSpins: 0,          // 🔄 Общее кол-во всех вращений
+slotWins: 0,           // 🏆 Кол-во выигрышей (любого типа)
+slotSpentStars: 0,     // 💸 Сколько звёзд потратил на билеты
+slotEarnedStars: 0,    // 💰 Сколько звёзд выиграл
+slotJackpots: 0,       // 🎰 Сколько джекпотов поймал
+slotPairs: 0,          // 💫 Сколько "двойных" совпадений
     };
 
     if (!userSnap.exists()) {

@@ -88,7 +88,7 @@ body: JSON.stringify({
       [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
       [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
       [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
-      [{ text: '👥 Join Community', url: communityLink }]
+      [{ text: '👥 Join Community', url: communityLink }],
       [{ text: '🎮 Minimorph Game', url: startGameLink }],
       [{ text: '📘 How to Play', url: howToPlayLink }],
     ]

@@ -166,14 +166,7 @@ const server = app.listen(port, async () => {
   console.log(`🚀 Express server listening on port ${port}`);
 
   try {
-    await bot.telegram.deleteWebhook();
-    await bot.launch({
-      polling: {
-        timeout: 30,
-        limit: 100,
-        dropPendingUpdates: true
-      }
-    });
+await bot.launch();
     console.log("🤖 Bot launched with long polling");
   } catch (err) {
     console.error("❌ Failed to launch bot:", err);

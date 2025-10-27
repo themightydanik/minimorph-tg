@@ -11,8 +11,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// после создания bot и app...
-const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "293621311"; // твой admin id
+// === Slot module setup ===
+const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 
 const slotRouter = initSlotModule({
@@ -34,7 +34,7 @@ app.use("/slot", slotRouter);
 app.use(express.json());
 app.use("/referral", referralRoute);
 
-// === COMMANDS REQUIRED BY TELEGRAM ===
+// === Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
   await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
 });
@@ -49,58 +49,68 @@ bot.command("terms", async (ctx) => {
   );
 });
 
-// Bot logic
+// === /start handler (immediate response, async ref processing) ===
 bot.start(async (ctx) => {
-  console.log("⚡ /start triggered!");
-  console.log("From:", ctx.from);
-  console.log("Start payload:", ctx.startPayload);
-  const ref = ctx.startPayload;
-  const telegramId = ctx.from.id.toString();
+  try {
+    const telegramId = ctx.from.id.toString();
+    const firstName = ctx.from.first_name || "there";
+    const username = ctx.from.username || "";
+    const ref = ctx.startPayload || null;
 
-  if (ref && ref !== telegramId) {
-    console.log(`👥 Пользователь ${telegramId} пришёл по ссылке ${ref}`);
-    try {
-      const response = await fetch('https://minimorph-tg.onrender.com/referral', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({
-  telegramId,
-  invitedBy: ref,
-  username: ctx.from.username,
-  first_name: ctx.from.first_name
-})
+    console.log("⚡ /start triggered!");
+    console.log("ctx.update:", JSON.stringify(ctx.update, null, 2));
 
+    // Сразу отвечаем пользователю
+    const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
+    const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
+    const communityLink = 'https://t.me/minimorph';
+
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
+        [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
+        [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
+        [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
+        [{ text: '👥 Join Community', url: communityLink }],
+        [{ text: '🎮 Minimorph Game', url: startGameLink }],
+        [{ text: '📘 How to Play', url: howToPlayLink }],
+      ]
+    };
+
+    await ctx.reply(
+      `👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`,
+      { reply_markup: keyboard }
+    );
+
+    // Асинхронная обработка реферала
+    if (ref && ref !== telegramId) {
+      setImmediate(async () => {
+        console.log(`👥 Пользователь ${telegramId} пришёл по ссылке ${ref}`);
+        try {
+          const response = await fetch('https://minimorph-tg.onrender.com/referral', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              telegramId,
+              invitedBy: ref,
+              username,
+              first_name: firstName
+            })
+          });
+          const result = await response.text();
+          console.log("📨 Referral API response:", result);
+        } catch (error) {
+          console.error("❌ Failed to send referral data:", error);
+        }
       });
-      const result = await response.text();
-      console.log("📨 Referral API response:", result);
-    } catch (error) {
-      console.error("❌ Failed to send referral data:", error);
     }
+
+  } catch (err) {
+    console.error("❌ Error in /start handler:", err);
   }
-
-  const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
-  const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
-  const communityLink = 'https://t.me/minimorph';
-
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
-      [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
-      [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
-      [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
-      [{ text: '👥 Join Community', url: communityLink }],
-      [{ text: '🎮 Minimorph Game', url: startGameLink }],
-      [{ text: '📘 How to Play', url: howToPlayLink }],
-    ]
-  };
-
-  await ctx.reply(
-    `👾 Hey 👋, ${ctx.from.first_name}! Welcome to Minimorph game!`,
-    { reply_markup: keyboard }
-  );
 });
 
-// === CALLBACK HANDLERS ===
+// === Callback handlers ===
 bot.action('play_slot', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply('🎰 To play, simply send the emoji 🎰 in this chat — Telegram will spin the slot for you!');
@@ -110,7 +120,7 @@ bot.action('buy_ticket', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply('💳 Processing your ticket purchase...');
   try {
-    await handleBuyTicket(ctx); // 👉 сразу запускает покупку
+    await handleBuyTicket(ctx);
   } catch (err) {
     console.error(err);
     await ctx.reply('❌ Failed to initiate purchase. Try again later.');
@@ -132,7 +142,7 @@ bot.action('withdraw_stars', async (ctx) => {
     return ctx.reply("⚠️ You don’t have any winnings yet.");
   }
 
- const data = userSnap.data();
+  const data = userSnap.data();
   const pending = data.pendingPayoutStars || 0;
 
   if (pending < 50) {
@@ -140,10 +150,7 @@ bot.action('withdraw_stars', async (ctx) => {
   }
 
   try {
-    // ⚙️ Тут делаем выплату через Telegram Stars API (позже вставим реальный вызов)
-    // Пример:
-    // await bot.telegram.sendStars(userId, balance);
-
+    // Тут будет реальный вызов Telegram Stars API
     await userRef.update({ pendingPayoutStars: 0 });
     await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
   } catch (error) {
@@ -152,11 +159,10 @@ bot.action('withdraw_stars', async (ctx) => {
   }
 });
 
-// Bot webhook endpoint
+// === Webhook endpoint ===
 app.use(bot.webhookCallback("/telegram"));
 
-
-// Ping route for uptime check
+// Ping route
 app.get("/", (req, res) => {
   res.send("✅ Bot is running");
 });
@@ -168,7 +174,7 @@ setInterval(() => {
     .catch((err) => console.error("❌ Self-ping failed:", err));
 }, 5 * 60 * 1000);
 
-// Start server and register webhook
+// Start server & set webhook
 app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
 

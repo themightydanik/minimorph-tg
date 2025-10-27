@@ -2,7 +2,6 @@ import express from 'express';
 import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
 import initSlotModule from "./slot.js";
-import { db } from "./firebase.js";
 
 dotenv.config();
 
@@ -89,6 +88,48 @@ bot.action('play_slot', async (ctx) => {
     await ctx.reply('🎰 To play, simply send the emoji 🎰 in this chat — Telegram will spin the slot for you!');
   } catch (err) {
     console.error("❌ play_slot action error:", err);
+  }
+});
+
+bot.action('buy_ticket', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('💳 Processing your ticket purchase...');
+    await handleBuyTicket(ctx);
+  } catch (err) {
+    console.error("❌ buy_ticket action error:", err);
+    await ctx.reply('❌ Failed to initiate purchase. Try again later.');
+  }
+});
+
+bot.action('exchange_points', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('🎁 Play various games inside the Minimorph Mini-App and exchange points for free spins to play slots!');
+  } catch (err) {
+    console.error("❌ exchange_points action error:", err);
+  }
+});
+
+bot.action('withdraw_stars', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id.toString();
+    const userRef = db.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) return await ctx.reply("⚠️ You don’t have any winnings yet.");
+
+    const data = userSnap.data();
+    const pending = data.pendingPayoutStars || 0;
+
+    if (pending < 50) return await ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
+
+    await userRef.update({ pendingPayoutStars: 0 });
+    await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
+  } catch (err) {
+    console.error("❌ withdraw_stars action error:", err);
+    await ctx.reply("🚫 Error during withdrawal. Please try again later.");
   }
 });
 

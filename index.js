@@ -182,7 +182,7 @@ bot.action('withdraw_stars', async (ctx) => {
     const data = userSnap.data();
     const earned = data.slotEarnedStars || 0;
 
-    if (earned < 50) return await ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${earned} ⭐️`);
+    if (earned < 100) return await ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Your current balance: ${earned} ⭐️`);
 
     await updateDoc(userRef, {
       pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,

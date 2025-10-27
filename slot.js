@@ -186,6 +186,9 @@ await bot.telegram.sendInvoice(chatId, {
     try {
       const msg = ctx.message;
 
+       // Пропускаем команды
+    if (msg.text && msg.text.startsWith("/")) return;
+
       // 1) Handle successful_payment (invoice was paid)
       if (msg && msg.successful_payment) {
         const payload = msg.successful_payment.invoice_payload || "";

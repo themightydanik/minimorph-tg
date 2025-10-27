@@ -153,7 +153,13 @@ app.listen(port, async () => {
 
   try {
     await bot.telegram.deleteWebhook(); // удалить старый webhook
-    await bot.launch({ polling: true });
+    await bot.launch({
+      polling: {
+        timeout: 30,
+        limit: 100,
+        dropPendingUpdates: true
+      }
+    });
     console.log("🤖 Bot launched with long polling");
   } catch (err) {
     console.error("❌ Failed to launch bot:", err);

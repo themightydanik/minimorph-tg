@@ -261,22 +261,28 @@ bot.on("dice", async (ctx) => {
     });
 
     let replyText = `🎰 Result: ${outcome}\n`;
-    if (reward > 0) {
-      replyText += `💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
-      await ctx.reply(replyText);
+if (reward > 0) {
+  if (outcome === "JACKPOT") {
+    replyText = `🎰 Result: JACKPOT!!! 🍒 🍒 🍒\n💎 JACKPOT!!! 💎\nUnbelievable! You’ve unlocked the top reward — ${reward} ⭐!\n🚀 The stars align in your favor!`;
+  } else {
+    replyText = `🎰 Result: ${outcome}\n💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
+  }
 
-      try {
-        await bot.telegram.sendMessage(
-          ADMIN_ID,
-          `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐\nAdded to pending payout.`
-        );
-      } catch (notifyErr) {
-        console.error("Failed to notify admin:", notifyErr);
-      }
-    } else {
-      replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
-      await ctx.reply(replyText);
-    }
+  await ctx.reply(replyText);
+
+  try {
+    await bot.telegram.sendMessage(
+      ADMIN_ID,
+      `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐ (${outcome})\nAdded to pending payout.`
+    );
+  } catch (notifyErr) {
+    console.error("Failed to notify admin:", notifyErr);
+  }
+} else {
+  replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
+  await ctx.reply(replyText);
+}
+
   } catch (err) {
     console.error("Error in dice handler:", err);
   }

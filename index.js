@@ -57,7 +57,7 @@ bot.command("terms", async (ctx) => {
 
 // === /start handler ===
 bot.start(async (ctx) => {
-  console.log("🔥 /start received from:", ctx.from.id); // <-- для отладки
+  console.log("🔥 /start received from:", ctx.from.id);
   try {
     const telegramId = ctx.from.id.toString();
     const firstName = ctx.from.first_name || "there";
@@ -82,25 +82,7 @@ bot.start(async (ctx) => {
 
     await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
 
-// === Async referral processing ===
-// if (ref && ref !== telegramId) {
-//   setImmediate(async () => {
-//     console.log(`👥 User ${telegramId} came via referral ${ref}`);
-//     try {
-//       const REFERRAL_URL = `http://103.13.208.11:${port}/referral`;
-//       const response = await fetch(REFERRAL_URL, {
-//         method: 'POST',
-//         headers: { 'Content-Type': 'application/json' },
-//         body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
-//       });
-//       const result = await response.text();
-//       console.log("📨 Referral API response:", result);
-//     } catch (err) {
-//       console.error("❌ Failed to send referral data:", err);
-//     }
-//   });
-// }
-
+    // === Async referral processing закомментирован ===
   } catch (err) {
     console.error("❌ Error in /start handler:", err);
   }
@@ -162,22 +144,12 @@ bot.action('withdraw_stars', async (ctx) => {
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 
 // === Start Express server & launch bot ===
-const server = app.listen(port, async () => {
+app.listen(port, async () => {
   console.log(`🚀 Express server listening on port ${port}`);
-
   try {
-await bot.launch();
+    await bot.launch();
     console.log("🤖 Bot launched with long polling");
   } catch (err) {
     console.error("❌ Failed to launch bot:", err);
-  }
-});
-
-// === Отлов ошибки порта ===
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    console.warn(`⚠️ Port ${port} is already in use. Maybe a previous instance is running.`);
-  } else {
-    console.error(err);
   }
 });

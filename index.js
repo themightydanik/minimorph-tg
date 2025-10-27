@@ -115,17 +115,21 @@ bot.action('play_slot', async (ctx) => {
   try {
     await ctx.answerCbQuery();
 
-    const playButton = {
+    const keyboard = {
       inline_keyboard: [
         [
-          { text: "🎰 Play Slot", callback_data: "spin_slot" }
+          {
+            text: '🎰 Copy & Play',
+            // Вставляет эмоджи в поле ввода пользователя
+            switch_inline_query_current_chat: '🎰'
+          }
         ]
       ]
     };
 
     await ctx.reply(
-      '🎰 To play, send the emoji 🎰 in chat or press the button below to spin!',
-      { reply_markup: playButton }
+      '🎰 To play the slot:\n1️⃣ Send the 🎰 emoji in this chat manually, OR\n2️⃣ Press the button below to insert the emoji in your input field and then send it.',
+      { reply_markup: keyboard }
     );
 
   } catch (err) {
@@ -133,17 +137,6 @@ bot.action('play_slot', async (ctx) => {
   }
 });
 
-// --- Новое действие для кнопки ---
-bot.action('spin_slot', async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-
-    // Просто отправляем эмоджи 🎰 в чат, чтобы Telegram запустил слот
-    await ctx.sendMessage("🎰");
-  } catch (err) {
-    console.error("❌ spin_slot action error:", err);
-  }
-});
 
 
 bot.action('buy_ticket', async (ctx) => {

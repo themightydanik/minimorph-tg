@@ -102,7 +102,7 @@ function initSlotModule({
       // Telegraf wrapper: bot.telegram.sendInvoice(chatId, title, description, payload, providerToken, startParameter, currency, prices)
       const title = `Buy ${TICKETS_PER_PURCHASE} slot ticket(s)`;
       const description = `${TICKETS_PER_PURCHASE} spins for the slot machine — cost ${PRICE_STARS} ⭐`;
-      const providerToken = null; // For Telegram Stars: provider token must be omitted/empty per Telegram docs.
+      const providerToken = ""; // For Telegram Stars: provider token must be omitted/empty per Telegram docs.
       const startParameter = `buy_slot_${Date.now()}`;
       const currency = "XTR"; // Stars currency indicator; keep as per Telegram requirements.
 

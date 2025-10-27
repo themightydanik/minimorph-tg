@@ -121,7 +121,7 @@ bot.action('play_slot', async (ctx) => {
           {
             text: '🎰 Copy & Play',
             // Вставляет эмоджи в поле ввода пользователя
-            switch_inline_query_current_chat: '🎰'
+            url: 'tg://msg?text=🎰'
           }
         ]
       ]

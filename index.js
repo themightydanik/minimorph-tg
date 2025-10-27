@@ -57,6 +57,7 @@ bot.command("terms", async (ctx) => {
 
 // === /start handler ===
 bot.start(async (ctx) => {
+  console.log("🔥 /start received from:", ctx.from.id); // <-- для отладки
   try {
     const telegramId = ctx.from.id.toString();
     const firstName = ctx.from.first_name || "there";
@@ -86,7 +87,9 @@ bot.start(async (ctx) => {
       setImmediate(async () => {
         console.log(`👥 User ${telegramId} came via referral ${ref}`);
         try {
-          const response = await fetch(`http://103.13.208.11/referral`, {
+          // Публичный IP твоего VPS и порт приложения
+          const REFERRAL_URL = `http://103.13.208.11:${port}/referral`;
+          const response = await fetch(REFERRAL_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
@@ -163,9 +166,7 @@ const server = app.listen(port, async () => {
   console.log(`🚀 Express server listening on port ${port}`);
 
   try {
-    // Удаляем старый webhook
     await bot.telegram.deleteWebhook();
-    // Лонч бота через long polling
     await bot.launch({
       polling: {
         timeout: 30,

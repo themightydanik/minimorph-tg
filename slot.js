@@ -159,12 +159,15 @@ await ctx.replyWithInvoice({
     const val = Math.floor(Math.random() * 64) + 1;
     let outcome = "MISS";
     let reward = 0;
+
     if (val === 64) {
       outcome = "JACKPOT";
-      reward = JACKPOT_REWARD;
-    } else if (val >= 49) {
+      reward = JACKPOT_REWARD; // 💎 3 одинаковых
+    } else if (val >= 33 && val <= 63) {
       outcome = "PAIR";
-      reward = PAIR_REWARD;
+      reward = PAIR_REWARD; // ⭐ 2 одинаковых
+    } else {
+      outcome = "MISS"; // ❌
     }
     return ctx.reply(`🎰 Demo spin\nValue: ${val}\nOutcome: ${outcome}\nReward (simulated): ${reward} ⭐\n(This is a demo, no real payments will be made.)`);
   });
@@ -259,7 +262,7 @@ bot.on("dice", async (ctx) => {
 
     let replyText = `🎰 Result: ${outcome}\n`;
     if (reward > 0) {
-      replyText += `💰 Congratulations, you won ${reward} ⭐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
+      replyText += `💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
       await ctx.reply(replyText);
 
       try {
@@ -271,7 +274,7 @@ bot.on("dice", async (ctx) => {
         console.error("Failed to notify admin:", notifyErr);
       }
     } else {
-      replyText += `😕 Sorry, didn't win anything. Try again!`;
+      replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
       await ctx.reply(replyText);
     }
   } catch (err) {

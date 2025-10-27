@@ -111,21 +111,32 @@ bot.start(async (ctx) => {
 });
 
 // === Slot button handlers ===
-const keyboard = {
-  inline_keyboard: [
-    [
-      {
-        text: '🎰 Copy & Play',
-        url: 'tg://msg?text=🎰'
-      }
-    ]
-  ]
-};
+bot.action('play_slot', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
 
-await ctx.reply(
-  '🎰 To play the slot:\n1️⃣ Send the 🎰 emoji in this chat manually, OR\n2️⃣ Press the button below to copy the emoji and send it.',
-  { reply_markup: keyboard }
-);
+    const keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '🎰 Copy & Play',
+            url: 'tg://msg?text=🎰'
+          }
+        ]
+      ]
+    };
+
+    await ctx.reply(
+      '🎰 To play the slot:\n' +
+      '1️⃣ Send the 🎰 emoji in this chat manually, OR\n' +
+      '2️⃣ Press the button below to copy the emoji and send it.',
+      { reply_markup: keyboard }
+    );
+
+  } catch (err) {
+    console.error("❌ play_slot action error:", err);
+  }
+});
 
 
 

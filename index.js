@@ -3,6 +3,7 @@ import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
 import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 dotenv.config();
 

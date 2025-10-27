@@ -95,13 +95,24 @@ bot.action('play_slot', async (ctx) => {
 bot.action('buy_ticket', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    await ctx.reply('💳 Processing your ticket purchase...');
-    await handleBuyTicket(ctx);
+    await ctx.reply('💳 Opening payment window...');
+    // просто вызываем уже существующую логику команды /buyticket
+    await bot.telegram.sendMessage(ctx.chat.id, "/buyticket");
+    await bot.handleUpdate({
+      update_id: Date.now(),
+      message: {
+        chat: ctx.chat,
+        from: ctx.from,
+        text: "/buyticket",
+        entities: [{ offset: 0, length: 10, type: "bot_command" }],
+      },
+    });
   } catch (err) {
     console.error("❌ buy_ticket action error:", err);
-    await ctx.reply('❌ Failed to initiate purchase. Try again later.');
+    await ctx.reply('❌ Failed to open payment window. Try again later.');
   }
 });
+
 
 bot.action('exchange_points', async (ctx) => {
   try {

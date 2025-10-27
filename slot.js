@@ -255,7 +255,6 @@ bot.on("dice", async (ctx) => {
       slotSpinsTotal: (data.slotSpinsTotal || 0) + 1,
       slotWins: (data.slotWins || 0) + (reward > 0 ? 1 : 0),
       slotEarnedStars: (data.slotEarnedStars || 0) + reward,
-      pendingPayoutStars: (data.pendingPayoutStars || 0) + reward,
     });
 
     let replyText = `🎰 Result: ${outcome}\n`;

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import fetch from "node-fetch"; // для POST к referral.js
 
 dotenv.config();
 
@@ -15,18 +16,18 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 
- const slotRouter = initSlotModule({
-   bot,
-   db,
-   ADMIN_ID: SLOT_ADMIN_ID,
-   ADMIN_SECRET: SLOT_ADMIN_SECRET,
-   PRICE_STARS: parseInt(process.env.SLOT_PRICE_STARS || "20", 10),
-   TICKETS_PER_PURCHASE: parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10),
-   JACKPOT_REWARD: parseInt(process.env.SLOT_JACKPOT_REWARD || "100", 10),
-   PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "5", 10),
-   NEWBIE_SPINS: parseInt(process.env.SLOT_NEWBIE_SPINS || "9", 10),
-   NEWBIE_MULTIPLIER: parseFloat(process.env.SLOT_NEWBIE_MULTIPLIER || "1.3"),
-  });
+const slotRouter = initSlotModule({
+  bot,
+  db,
+  ADMIN_ID: SLOT_ADMIN_ID,
+  ADMIN_SECRET: SLOT_ADMIN_SECRET,
+  PRICE_STARS: parseInt(process.env.SLOT_PRICE_STARS || "20", 10),
+  TICKETS_PER_PURCHASE: parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10),
+  JACKPOT_REWARD: parseInt(process.env.SLOT_JACKPOT_REWARD || "100", 10),
+  PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "5", 10),
+  NEWBIE_SPINS: parseInt(process.env.SLOT_NEWBIE_SPINS || "9", 10),
+  NEWBIE_MULTIPLIER: parseFloat(process.env.SLOT_NEWBIE_MULTIPLIER || "1.3"),
+});
 
 app.use("/slot", slotRouter);
 app.use(express.json());
@@ -54,13 +55,38 @@ bot.command("terms", async (ctx) => {
   }
 });
 
-// === /start handler ===
+// === /start handler with referral integration ===
 bot.start(async (ctx) => {
   console.log("🔥 /start received from:", ctx.from.id);
   try {
     const telegramId = ctx.from.id.toString();
     const firstName = ctx.from.first_name || "there";
 
+    // --- Referral processing ---
+    const payload = ctx.startPayload || ""; // Telegram Mini-App payload
+    let invitedBy = null;
+    if (payload.startsWith("ref_")) {
+      invitedBy = payload.slice(4); // получаем ID реферера
+    }
+
+    if (invitedBy && invitedBy !== telegramId) {
+      try {
+        await fetch(`${process.env.BASE_URL}/referral/referral`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            telegramId,
+            invitedBy,
+            username: ctx.from.username,
+            first_name: firstName
+          })
+        });
+      } catch (err) {
+        console.error("❌ Referral POST error:", err);
+      }
+    }
+
+    // --- Buttons / keyboard ---
     const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
     const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
     const communityLink = 'https://t.me/minimorph';
@@ -78,6 +104,7 @@ bot.start(async (ctx) => {
     };
 
     await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
+
   } catch (err) {
     console.error("❌ Error in /start handler:", err);
   }
@@ -97,7 +124,6 @@ bot.action('buy_ticket', async (ctx) => {
   try {
     await ctx.answerCbQuery();
     await ctx.reply('💳 Opening payment window...');
-    // просто вызываем уже существующую логику команды /buyticket
     await bot.telegram.sendMessage(ctx.chat.id, "/buyticket");
     await bot.handleUpdate({
       update_id: Date.now(),
@@ -114,7 +140,6 @@ bot.action('buy_ticket', async (ctx) => {
   }
 });
 
-
 bot.action('exchange_points', async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -128,7 +153,7 @@ bot.action('withdraw_stars', async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const userId = ctx.from.id.toString();
-    const userRef = doc(db, "users", userId); // <-- modular style
+    const userRef = doc(db, "users", userId);
     const userSnap = await getDoc(userRef);
 
     if (!userSnap.exists()) return await ctx.reply("⚠️ You don’t have any winnings yet.");
@@ -138,16 +163,13 @@ bot.action('withdraw_stars', async (ctx) => {
 
     if (earned < 50) return await ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${earned} ⭐️`);
 
-    // Обновляем pendingPayoutStars и обнуляем slotEarnedStars
     await updateDoc(userRef, {
       pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,
       slotEarnedStars: 0,
     });
 
-    // уведомляем пользователя
     await ctx.reply(`✅ Your payout request of ${earned} ⭐️ has been queued. Admin will send Stars manually.`);
 
-    // уведомляем админа
     try {
       await bot.telegram.sendMessage(
         SLOT_ADMIN_ID,
@@ -162,10 +184,6 @@ bot.action('withdraw_stars', async (ctx) => {
     await ctx.reply("🚫 Error during withdrawal. Please try again later.");
   }
 });
-
-
-
-
 
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));

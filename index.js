@@ -34,17 +34,25 @@ app.use("/referral", referralRoute);
 
 // === Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
-  await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
+  try {
+    await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
+  } catch (err) {
+    console.error("❌ /support command error:", err);
+  }
 });
 
 bot.command("terms", async (ctx) => {
-  await ctx.reply(
-    "📜 Terms of Use:\n\n" +
-    "1. Playing the slot machine costs Telegram Stars.\n" +
-    "2. Rewards are paid out in Telegram Stars automatically.\n" +
-    "3. Gambling responsibly — play for fun.\n" +
-    "4. For help, contact @Deviola_programmer."
-  );
+  try {
+    await ctx.reply(
+      "📜 Terms of Use:\n\n" +
+      "1. Playing the slot machine costs Telegram Stars.\n" +
+      "2. Rewards are paid out in Telegram Stars automatically.\n" +
+      "3. Gambling responsibly — play for fun.\n" +
+      "4. For help, contact @Deviola_programmer."
+    );
+  } catch (err) {
+    console.error("❌ /terms command error:", err);
+  }
 });
 
 // === /start handler ===
@@ -97,44 +105,52 @@ bot.start(async (ctx) => {
 
 // === Callback handlers ===
 bot.action('play_slot', async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply('🎰 To play, simply send the emoji 🎰 in this chat — Telegram will spin the slot for you!');
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('🎰 To play, simply send the emoji 🎰 in this chat — Telegram will spin the slot for you!');
+  } catch (err) {
+    console.error("❌ play_slot action error:", err);
+  }
 });
 
 bot.action('buy_ticket', async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply('💳 Processing your ticket purchase...');
   try {
+    await ctx.answerCbQuery();
+    await ctx.reply('💳 Processing your ticket purchase...');
     await handleBuyTicket(ctx);
   } catch (err) {
-    console.error(err);
+    console.error("❌ buy_ticket action error:", err);
     await ctx.reply('❌ Failed to initiate purchase. Try again later.');
   }
 });
 
 bot.action('exchange_points', async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply('🎁 Play various games inside the Minimorph Mini-App and exchange points for free spins to play slots!');
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('🎁 Play various games inside the Minimorph Mini-App and exchange points for free spins to play slots!');
+  } catch (err) {
+    console.error("❌ exchange_points action error:", err);
+  }
 });
 
 bot.action('withdraw_stars', async (ctx) => {
-  await ctx.answerCbQuery();
-  const userId = ctx.from.id.toString();
-  const userRef = db.collection("users").doc(userId);
-  const userSnap = await userRef.get();
-
-  if (!userSnap.exists) return ctx.reply("⚠️ You don’t have any winnings yet.");
-
-  const data = userSnap.data();
-  const pending = data.pendingPayoutStars || 0;
-
-  if (pending < 50) return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
-
   try {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id.toString();
+    const userRef = db.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) return await ctx.reply("⚠️ You don’t have any winnings yet.");
+
+    const data = userSnap.data();
+    const pending = data.pendingPayoutStars || 0;
+
+    if (pending < 50) return await ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
+
     await userRef.update({ pendingPayoutStars: 0 });
     await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
   } catch (err) {
-    console.error("❌ Withdrawal error:", err);
+    console.error("❌ withdraw_stars action error:", err);
     await ctx.reply("🚫 Error during withdrawal. Please try again later.");
   }
 });
@@ -142,17 +158,18 @@ bot.action('withdraw_stars', async (ctx) => {
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 
-// === Prevent Render sleep ===
+// === Prevent Render/Replit sleep ===
 setInterval(() => {
   fetch(`https://minimorph-tg.onrender.com/`).catch(() => {});
 }, 5 * 60 * 1000);
 
-// === Start server & launch bot with long polling ===
+// === Start Express server & launch bot ===
 app.listen(port, async () => {
-  console.log(`🚀 Server listening on port ${port}`);
-
+  console.log(`🚀 Express server listening on port ${port}`);
   try {
-    await bot.telegram.deleteWebhook(); // удалить старый webhook
+    // Удаляем старый webhook если был
+    await bot.telegram.deleteWebhook();
+    // Лонч бота через long polling
     await bot.launch({
       polling: {
         timeout: 30,

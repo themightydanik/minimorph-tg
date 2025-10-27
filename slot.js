@@ -27,7 +27,7 @@ function initSlotModule({
   PRICE_STARS = 20,
   TICKETS_PER_PURCHASE = 3,
   JACKPOT_REWARD = 100,
-  PAIR_REWARD = 5,
+  PAIR_REWARD = 7,
   NEWBIE_SPINS = 9,
   NEWBIE_MULTIPLIER = 1.3,
 }) {

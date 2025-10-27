@@ -82,25 +82,25 @@ bot.start(async (ctx) => {
 
     await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
 
-    // === Async referral processing ===
-    if (ref && ref !== telegramId) {
-      setImmediate(async () => {
-        console.log(`👥 User ${telegramId} came via referral ${ref}`);
-        try {
-          // Публичный IP твоего VPS и порт приложения
-          const REFERRAL_URL = `http://103.13.208.11:${port}/referral`;
-          const response = await fetch(REFERRAL_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
-          });
-          const result = await response.text();
-          console.log("📨 Referral API response:", result);
-        } catch (err) {
-          console.error("❌ Failed to send referral data:", err);
-        }
-      });
-    }
+// === Async referral processing ===
+// if (ref && ref !== telegramId) {
+//   setImmediate(async () => {
+//     console.log(`👥 User ${telegramId} came via referral ${ref}`);
+//     try {
+//       const REFERRAL_URL = `http://103.13.208.11:${port}/referral`;
+//       const response = await fetch(REFERRAL_URL, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
+//       });
+//       const result = await response.text();
+//       console.log("📨 Referral API response:", result);
+//     } catch (err) {
+//       console.error("❌ Failed to send referral data:", err);
+//     }
+//   });
+// }
+
   } catch (err) {
     console.error("❌ Error in /start handler:", err);
   }

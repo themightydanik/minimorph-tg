@@ -126,24 +126,53 @@ bot.action('exchange_points', async (ctx) => {
 bot.action('withdraw_stars', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const userId = ctx.from.id.toString();
-    const userRef = db.collection("users").doc(userId);
+    const telegramId = ctx.from.id.toString();
+    const userRef = db.collection("users").doc(telegramId);
     const userSnap = await userRef.get();
 
-    if (!userSnap.exists) return await ctx.reply("⚠️ You don’t have any winnings yet.");
+    if (!userSnap.exists) {
+      await ctx.reply("⚠️ You don’t have any winnings yet.");
+      return;
+    }
 
     const data = userSnap.data();
+    const earned = data.slotEarnedStars || 0;
     const pending = data.pendingPayoutStars || 0;
 
-    if (pending < 50) return await ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
+    if (earned <= 0) {
+      await ctx.reply("💡 You have no Stars available for withdrawal yet.");
+      return;
+    }
 
-    await userRef.update({ pendingPayoutStars: 0 });
-    await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
+    // добавляем звёзды в pendingPayoutStars и обнуляем slotEarnedStars
+    await userRef.update({
+      pendingPayoutStars: pending + earned,
+      slotEarnedStars: 0,
+    });
+
+    // сообщение пользователю
+    await ctx.reply(
+      `✅ Withdrawal request sent for ${earned} ⭐️.\n\n` +
+      `Your request will be processed manually within a few hours.`
+    );
+
+    // уведомление тебе (админу)
+    const ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
+    await bot.telegram.sendMessage(
+      ADMIN_ID,
+      `💸 *New withdrawal request!*\n\n` +
+      `👤 @${ctx.from.username || "No username"}\n🆔 ${telegramId}\n` +
+      `⭐️ ${earned} Stars requested\n\n` +
+      `🕐 Current pending total: ${pending + earned} Stars`,
+      { parse_mode: "Markdown" }
+    );
+
   } catch (err) {
     console.error("❌ withdraw_stars action error:", err);
-    await ctx.reply("🚫 Error during withdrawal. Please try again later.");
+    await ctx.reply("🚫 Error during withdrawal request. Please try again later.");
   }
 });
+
 
 
 

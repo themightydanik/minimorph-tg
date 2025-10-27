@@ -9,8 +9,6 @@ import { db } from "./firebase.js";
 
 const app = express();
 const port = process.env.PORT || 3000;
-
-// === Bot setup ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // === Slot module setup ===
@@ -75,22 +73,23 @@ bot.start(async (ctx) => {
 
     await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
 
-    // Async referral
+    // === Async referral processing ===
     if (ref && ref !== telegramId) {
       setImmediate(async () => {
         console.log(`👥 User ${telegramId} came via referral ${ref}`);
         try {
-          await fetch('https://minimorph-tg.onrender.com/referral', {
+          const response = await fetch('https://minimorph-tg.onrender.com/referral', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
           });
+          const result = await response.text();
+          console.log("📨 Referral API response:", result);
         } catch (err) {
           console.error("❌ Failed to send referral data:", err);
         }
       });
     }
-
   } catch (err) {
     console.error("❌ Error in /start handler:", err);
   }
@@ -105,8 +104,12 @@ bot.action('play_slot', async (ctx) => {
 bot.action('buy_ticket', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply('💳 Processing your ticket purchase...');
-  try { await handleBuyTicket(ctx); } 
-  catch (err) { console.error(err); await ctx.reply('❌ Failed to initiate purchase. Try again later.'); }
+  try {
+    await handleBuyTicket(ctx);
+  } catch (err) {
+    console.error(err);
+    await ctx.reply('❌ Failed to initiate purchase. Try again later.');
+  }
 });
 
 bot.action('exchange_points', async (ctx) => {
@@ -121,8 +124,10 @@ bot.action('withdraw_stars', async (ctx) => {
   const userSnap = await userRef.get();
 
   if (!userSnap.exists) return ctx.reply("⚠️ You don’t have any winnings yet.");
+
   const data = userSnap.data();
   const pending = data.pendingPayoutStars || 0;
+
   if (pending < 50) return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
 
   try {
@@ -142,12 +147,15 @@ setInterval(() => {
   fetch(`https://minimorph-tg.onrender.com/`).catch(() => {});
 }, 5 * 60 * 1000);
 
-// === Start server ===
+// === Start server & launch bot with long polling ===
 app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
-});
 
-// === Launch bot (long polling) ===
-bot.launch({
-  polling: true
-}).then(() => console.log("🤖 Bot launched with long polling"));
+  try {
+    await bot.telegram.deleteWebhook(); // удалить старый webhook
+    await bot.launch({ polling: true });
+    console.log("🤖 Bot launched with long polling");
+  } catch (err) {
+    console.error("❌ Failed to launch bot:", err);
+  }
+});

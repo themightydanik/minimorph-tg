@@ -29,8 +29,6 @@ const slotRouter = initSlotModule({
 });
 
 app.use("/slot", slotRouter);
-
-// Middleware
 app.use(express.json());
 app.use("/referral", referralRoute);
 
@@ -49,7 +47,7 @@ bot.command("terms", async (ctx) => {
   );
 });
 
-// === /start handler (fast reply, async referral) ===
+// === /start handler (instant reply + async referral) ===
 bot.start(async (ctx) => {
   try {
     const telegramId = ctx.from.id.toString();
@@ -84,12 +82,7 @@ bot.start(async (ctx) => {
           const response = await fetch('https://minimorph-tg.onrender.com/referral', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              telegramId,
-              invitedBy: ref,
-              username,
-              first_name: firstName
-            })
+            body: JSON.stringify({ telegramId, invitedBy: ref, username, first_name: firstName })
           });
           const result = await response.text();
           console.log("📨 Referral API response:", result);
@@ -98,7 +91,6 @@ bot.start(async (ctx) => {
         }
       });
     }
-
   } catch (err) {
     console.error("❌ Error in /start handler:", err);
   }
@@ -148,26 +140,22 @@ bot.action('withdraw_stars', async (ctx) => {
   }
 });
 
-// === Webhook endpoint for Telegram ===
-app.post("/telegram", (req, res) => {
-  bot.handleUpdate(req.body, res)
-    .then(() => res.status(200).end())
-    .catch(err => {
-      console.error("❌ Webhook error:", err);
-      res.status(200).end(); // важно всегда возвращать 200
-    });
+// === Webhook endpoint ===
+app.post("/telegram", async (req, res) => {
+  try {
+    await bot.handleUpdate(req.body);
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
+  }
+  res.status(200).end(); // обязательно 200
 });
 
 // === Ping route ===
-app.get("/", (req, res) => {
-  res.send("✅ Bot is running");
-});
+app.get("/", (req, res) => res.send("✅ Bot is running"));
 
 // === Prevent Render sleep ===
 setInterval(() => {
-  fetch(`https://minimorph-tg.onrender.com/`)
-    .then(() => console.log("🔁 Self-ping to prevent Render sleep"))
-    .catch(err => console.error("❌ Self-ping failed:", err));
+  fetch(`https://minimorph-tg.onrender.com/`).catch(() => {});
 }, 5 * 60 * 1000);
 
 // === Start server & set webhook ===

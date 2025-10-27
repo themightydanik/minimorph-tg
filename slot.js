@@ -184,6 +184,107 @@ await bot.telegram.sendInvoice(chatId, {
   // successful_payment comes inside message.successful_payment
   
 // Тут вставляем вырезанный bot on message
+  // --- Selective message handler ---
+bot.on("message", async (ctx) => {
+  try {
+    const msg = ctx.message;
+
+    // --- 0. Пропускаем команды полностью ---
+    if (msg.text && msg.text.startsWith("/")) return;
+
+    // --- 1. Handle successful_payment (invoice was paid) ---
+    if (msg.successful_payment) {
+      const payload = msg.successful_payment.invoice_payload || "";
+      const chatId = msg.chat.id;
+      const payerId = msg.from.id.toString();
+
+      if (payload.startsWith("buy_ticket:")) {
+        const targetId = payerId;
+        const user = await getUserById(targetId);
+        if (!user) {
+          await setDoc(doc(db, "users", targetId), {
+            username: msg.from.username || `User-${targetId}`,
+            slotTickets: TICKETS_PER_PURCHASE,
+          });
+        } else {
+          await ensureSlotFields(user.ref, user.data);
+          await updateDoc(user.ref, {
+            slotTickets: (user.data.slotTickets || 0) + TICKETS_PER_PURCHASE,
+            slotSpentStars: (user.data.slotSpentStars || 0) + PRICE_STARS,
+          });
+        }
+
+        await bot.telegram.sendMessage(
+          chatId,
+          `✅ Purchase confirmed. You have been issued ${TICKETS_PER_PURCHASE} ticket(s).`
+        );
+      }
+
+      return; // Успешная обработка платежа — дальше не идем
+    }
+
+    // --- 2. Handle slot dice 🎰 ---
+    if (msg.dice?.emoji === "🎰") {
+      const telegramId = msg.from.id.toString();
+      const user = await getUserById(telegramId);
+      if (!user) return ctx.reply("❗ You are not registered. Run /start.");
+
+      const data = await ensureSlotFields(user.ref, user.data);
+
+      if ((data.slotTickets || 0) <= 0) {
+        return ctx.reply("You don't have any tickets. Buy /buyticket or ask admin for some.");
+      }
+
+      const val = msg.dice.value;
+      const spinsTotal = data.slotSpinsTotal || 0;
+      const isNewbie = spinsTotal < NEWBIE_SPINS;
+      const basePairCount = 15;
+      const pairCount = Math.min(63, Math.max(1, Math.floor(basePairCount * (isNewbie ? NEWBIE_MULTIPLIER : 1))));
+      const pairThreshold = 64 - pairCount;
+
+      let outcome = "MISS";
+      let reward = 0;
+      if (val === 64) {
+        outcome = "JACKPOT";
+        reward = JACKPOT_REWARD;
+      } else if (val > pairThreshold) {
+        outcome = "PAIR";
+        reward = PAIR_REWARD;
+      }
+
+      // Обновляем stats и tickets
+      await updateDoc(user.ref, {
+        slotTickets: (data.slotTickets || 0) - 1,
+        slotSpinsTotal: (data.slotSpinsTotal || 0) + 1,
+        slotWins: (data.slotWins || 0) + (reward > 0 ? 1 : 0),
+        slotEarnedStars: (data.slotEarnedStars || 0) + reward,
+        pendingPayoutStars: (data.pendingPayoutStars || 0) + reward,
+      });
+
+      let replyText = `🎰 Result: ${outcome}\n`;
+      if (reward > 0) {
+        replyText += `💰 Congratulations, you won ${reward} ⭐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
+        await ctx.reply(replyText);
+
+        try {
+          await bot.telegram.sendMessage(
+            ADMIN_ID,
+            `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐\nAdded to pending payout.`
+          );
+        } catch (notifyErr) {
+          console.error("Failed to notify admin:", notifyErr);
+        }
+      } else {
+        replyText += `😕 Sorry, didn't win anything. Try again!`;
+        await ctx.reply(replyText);
+      }
+    }
+
+  } catch (err) {
+    console.error("Error in selective message handler:", err);
+  }
+});
+
 
   // --- ADMIN EXPRESS ROUTES ---
 

@@ -129,7 +129,7 @@ bot.action('play_slot', async (ctx) => {
     await ctx.reply(
       '🎰 To play the slot:\n' +
       '1️⃣ Send the 🎰 emoji in this chat manually, OR\n' +
-      '2️⃣ Press the button below to forward the emoji to MinimorphBot',
+      '2️⃣ Press the button below to forward the emoji to Minimorph game',
       { reply_markup: keyboard }
     );
 

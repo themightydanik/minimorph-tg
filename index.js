@@ -1,6 +1,6 @@
 import express from 'express';
 import referralRoute from "./referral.js";
-import { Telegraf, Markup } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 dotenv.config();
@@ -49,7 +49,7 @@ bot.command("terms", async (ctx) => {
   );
 });
 
-// === /start handler (immediate response, async ref processing) ===
+// === /start handler (fast reply, async referral) ===
 bot.start(async (ctx) => {
   try {
     const telegramId = ctx.from.id.toString();
@@ -57,10 +57,7 @@ bot.start(async (ctx) => {
     const username = ctx.from.username || "";
     const ref = ctx.startPayload || null;
 
-    console.log("⚡ /start triggered!");
-    console.log("ctx.update:", JSON.stringify(ctx.update, null, 2));
-
-    // Сразу отвечаем пользователю
+    // === Immediate response to user ===
     const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
     const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
     const communityLink = 'https://t.me/minimorph';
@@ -77,15 +74,12 @@ bot.start(async (ctx) => {
       ]
     };
 
-    await ctx.reply(
-      `👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`,
-      { reply_markup: keyboard }
-    );
+    await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
 
-    // Асинхронная обработка реферала
+    // === Async referral processing ===
     if (ref && ref !== telegramId) {
       setImmediate(async () => {
-        console.log(`👥 Пользователь ${telegramId} пришёл по ссылке ${ref}`);
+        console.log(`👥 User ${telegramId} came via referral ${ref}`);
         try {
           const response = await fetch('https://minimorph-tg.onrender.com/referral', {
             method: 'POST',
@@ -99,8 +93,8 @@ bot.start(async (ctx) => {
           });
           const result = await response.text();
           console.log("📨 Referral API response:", result);
-        } catch (error) {
-          console.error("❌ Failed to send referral data:", error);
+        } catch (err) {
+          console.error("❌ Failed to send referral data:", err);
         }
       });
     }
@@ -138,46 +132,47 @@ bot.action('withdraw_stars', async (ctx) => {
   const userRef = db.collection("users").doc(userId);
   const userSnap = await userRef.get();
 
-  if (!userSnap.exists) {
-    return ctx.reply("⚠️ You don’t have any winnings yet.");
-  }
+  if (!userSnap.exists) return ctx.reply("⚠️ You don’t have any winnings yet.");
 
   const data = userSnap.data();
   const pending = data.pendingPayoutStars || 0;
 
-  if (pending < 50) {
-    return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
-  }
+  if (pending < 50) return ctx.reply(`💡 Minimum withdrawal is 50 ⭐️. Your current balance: ${pending} ⭐️`);
 
   try {
-    // Тут будет реальный вызов Telegram Stars API
     await userRef.update({ pendingPayoutStars: 0 });
     await ctx.reply(`✅ Your payout of ${pending} ⭐️ has been successfully queued. Your Stars balance will update within a few hours.`);
-  } catch (error) {
-    console.error("❌ Withdrawal error:", error);
+  } catch (err) {
+    console.error("❌ Withdrawal error:", err);
     await ctx.reply("🚫 Error during withdrawal. Please try again later.");
   }
 });
 
-// === Webhook endpoint ===
-app.use(bot.webhookCallback("/telegram"));
+// === Webhook endpoint for Telegram ===
+app.post("/telegram", (req, res) => {
+  bot.handleUpdate(req.body, res)
+    .then(() => res.status(200).end())
+    .catch(err => {
+      console.error("❌ Webhook error:", err);
+      res.status(200).end(); // важно всегда возвращать 200
+    });
+});
 
-// Ping route
+// === Ping route ===
 app.get("/", (req, res) => {
   res.send("✅ Bot is running");
 });
 
-// Prevent Render sleep
+// === Prevent Render sleep ===
 setInterval(() => {
   fetch(`https://minimorph-tg.onrender.com/`)
     .then(() => console.log("🔁 Self-ping to prevent Render sleep"))
-    .catch((err) => console.error("❌ Self-ping failed:", err));
+    .catch(err => console.error("❌ Self-ping failed:", err));
 }, 5 * 60 * 1000);
 
-// Start server & set webhook
+// === Start server & set webhook ===
 app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
-
   try {
     const webhookUrl = `https://minimorph-tg.onrender.com/telegram`;
     await bot.telegram.setWebhook(webhookUrl);

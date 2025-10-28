@@ -1,7 +1,7 @@
 // pvp/pvpWallet.js
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvpFirebase.js";
-import { startBattle } from "./pvp/pvpGameLogic.js";
+import { startBattle } from "./pvpGameLogic.js";
 
 export function initPvpWalletLogic({ bot, db }) {
 

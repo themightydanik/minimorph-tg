@@ -1,4 +1,3 @@
-// pvp/pvpPayments.js
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 import { startBattle } from "./pvpGameLogic.js";
 
@@ -14,34 +13,35 @@ export default function initPvpPayments({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
-    // Проверяем правильного игрока
     const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
     if (ctx.from.id !== expectedId) {
       return ctx.reply("⚠️ This invoice is not for you.");
     }
 
-    // Обновляем поля оплаты отдельно
+    // Обновляем флаги оплаты и статус
     const updateData = {};
-    if (role === "initiator") updateData.initiatorPaid = true;
-    if (role === "opponent") updateData.opponentPaid = true;
+    if (role === "initiator") {
+      updateData.initiatorPaid = true;
+      updateData.status = "initiator_paid";
+    } else if (role === "opponent") {
+      updateData.opponentPaid = true;
+      updateData.status = "opponent_paid";
+    }
 
     await updateBattle(db, battleId, updateData);
-
     const updatedBattle = await getBattleById(db, battleId);
 
-    // Если оба оплатили, запускаем игру
+    // Если оба оплатили — запускаем игру
     if (updatedBattle.initiatorPaid && updatedBattle.opponentPaid) {
       await updateBattle(db, battleId, { status: "paid_by_both" });
       await startBattle(bot, db, battleId);
-    } else {
-      // Если только один оплатил, уведомляем второго
-      if (role === "initiator" && updatedBattle.opponentId) {
-        await bot.telegram.sendMessage(
-          updatedBattle.opponentId,
-          `💸 Organizer has paid! Now it's your turn to pay (${updatedBattle.prizePool / 2} ⭐).`
-        );
-        await sendPaymentRequest(bot.telegram, updatedBattle.opponentId, battleId, "opponent", updatedBattle.prizePool / 2);
-      }
+    } else if (role === "initiator" && updatedBattle.opponentId) {
+      // отправляем инвойс оппоненту
+      await bot.telegram.sendMessage(
+        updatedBattle.opponentId,
+        `💸 Organizer has paid! Now it's your turn to pay (${updatedBattle.prizePool / 2} ⭐).`
+      );
+      await sendPaymentRequest(bot.telegram, updatedBattle.opponentId, battleId, "opponent", updatedBattle.prizePool / 2);
     }
 
     await ctx.reply("✅ Payment successful! You can return to the battle chat.");

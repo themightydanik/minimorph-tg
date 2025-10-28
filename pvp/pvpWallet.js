@@ -35,12 +35,14 @@ export function initPvpWalletLogic({ bot, db }) {
           inline_keyboard: [
             [
               { text: "💎 Add 1 ⭐", callback_data: `wallet_add_${battle.id}_1` },
-              { text: "💎 Add 125 ⭐", callback_data: `wallet_add_${battle.id}_125` },
-              { text: "💎 Add 250 ⭐", callback_data: `wallet_add_${battle.id}_250` },
+              { text: "💎 Add 125 ⭐", callback_data: `wallet_add_${battle.id}_125` },  
             ],
             [
-              { text: "✅ Pay for Battle", callback_data: `battle_pay_${battle.id}` }
-            ]
+              { text: "💎 Add 250 ⭐", callback_data: `wallet_add_${battle.id}_250` }
+            ],
+            [
+              { text: "✅ Pay using Wallet", callback_data: `battle_pay_${battle.id}` }
+            ],
           ]
         }
       }

@@ -13,6 +13,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
+bot.db = db;
 
 // === Constants ===
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";

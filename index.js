@@ -107,11 +107,16 @@ bot.action("start_battle", async (ctx) => {
         { text: "💰 250 ⭐", callback_data: "pvp_prize_250" },
       ],
       [{ text: "💎 500 ⭐", callback_data: "pvp_prize_500" }],
-      [{ text: "🎯 Without Prize", callback_data: "pvp_prize_0" }]
+      [{ text: "🎯 Without Prize", callback_data: "pvp_prize_0" }],
+      [
+        { text: "💳 Top Up Wallet 1", callback_data: "wallet_add_1" },
+        { text: "💳 Top Up Wallet 125", callback_data: "wallet_add_125" },
+        { text: "💳 Top Up Wallet 250", callback_data: "wallet_add_250" },
+      ],
     ]
   };
 
-  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
+  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize or top up Wallet:`, { reply_markup: keyboard });
 });
 
 // === Handle prize pool selection ===
@@ -120,36 +125,69 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const prizePool = parseInt(ctx.match[1]);
   const initiator = ctx.from;
 
+  const battle = await createBattle(db, initiator, prizePool);
+
   if (prizePool === 0) {
-    // Создаём батл без призового пула
-    const battle = await createBattle(db, initiator, 0);
     await updateBattle(db, battle.id, {
       initiatorPaid: true,
       opponentPaid: true,
       status: "paid_by_both"
     });
-
-    await ctx.reply(`🎮 @${initiator.username || initiator.first_name}, your battle without prize is ready! You can start the game.`);
-
-    // Запускаем батл сразу
+    await ctx.reply(`🎮 @${initiator.username || initiator.first_name}, your battle without prize is ready!`);
     await startBattle(bot, db, battle.id);
     return;
   }
 
-  // Для батлов с призовым пулом: создаём запись и ждём оплаты
-  const battle = await createBattle(db, initiator, prizePool);
+  const userRef = doc(db, initiator.id.toString());
+  const userSnap = await getDoc(userRef);
+  const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
 
-  const payKeyboard = {
-    inline_keyboard: [
-      [{ text: "💳 Top Up Wallet", callback_data: "wallet_topup" }],
-      [{ text: "💰 Pay using Wallet", callback_data: `pvp_pay_wallet_${battle.id}` }],
-    ]
-  };
+  if (wallet >= prizePool / 2) {
+    await updateBattle(db, battle.id, { initiatorPaid: true });
+    const keyboard = {
+      inline_keyboard: [[{ text: "💸 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]]
+    };
+    await ctx.reply(`💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`, { reply_markup: keyboard });
+  } else {
+    const topupKeyboard = {
+      inline_keyboard: [
+        [{ text: "💳 Add 1 Star", callback_data: "wallet_add_1" }],
+        [{ text: "💳 Add 125 Stars", callback_data: "wallet_add_125" }],
+        [{ text: "💳 Add 250 Stars", callback_data: "wallet_add_250" }]
+      ]
+    };
+    await ctx.reply(`💡 Your Wallet balance is ${wallet} ⭐. Top up to participate.`, { reply_markup: topupKeyboard });
+  }
+});
 
-  await ctx.reply(
-    `💡 @${initiator.username || initiator.first_name}, to play for ${prizePool} ⭐, both players must top up at least ${prizePool / 2} ⭐ to their wallet.`,
-    { reply_markup: payKeyboard }
-  );
+// === Pay using Wallet ===
+bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const battleId = ctx.match[1];
+  const battle = await getBattleById(db, battleId);
+  if (!battle) return ctx.reply("⚠️ Battle not found.");
+
+  const userRef = doc(db, ctx.from.id.toString());
+  const userSnap = await getDoc(userRef);
+  const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
+
+  const needed = battle.prizePool / 2;
+  if (wallet < needed) return ctx.reply(`⚠️ Not enough Wallet balance. Need ${needed} ⭐.`);
+
+  await updateDoc(userRef, { wallet: wallet - needed });
+
+  const updateData = {};
+  if (ctx.from.id === battle.initiatorId) updateData.initiatorPaid = true;
+  if (ctx.from.id === battle.opponentId) updateData.opponentPaid = true;
+  await updateBattle(db, battleId, updateData);
+
+  await ctx.reply(`✅ ${needed} ⭐ deducted from your Wallet. Ready to battle!`);
+
+  const updatedBattle = await getBattleById(db, battleId);
+  if (updatedBattle.initiatorPaid && updatedBattle.opponentPaid) {
+    await updateBattle(db, battleId, { status: "paid_by_both" });
+    await startBattle(bot, db, battleId);
+  }
 });
 
 // Ping route

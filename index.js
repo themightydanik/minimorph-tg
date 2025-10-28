@@ -86,15 +86,15 @@ bot.action('withdraw_stars', async (ctx) => {
 
     const data = userSnap.data();
     const earned = data.slotEarnedStars || 0;
-    if (earned < 100) return ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Current: ${earned} ⭐️`);
+    if (earned < 100) return ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Current: ${earned} ⭐`);
 
     await updateDoc(userRef, {
       pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,
       slotEarnedStars: 0,
     });
 
-    await ctx.reply(`✅ Your payout request of ${earned} ⭐️ has been queued.`);
-    await bot.telegram.sendMessage(SLOT_ADMIN_ID, `💰 User @${ctx.from.username} requested withdrawal of ${earned} ⭐️.`);
+    await ctx.reply(`✅ Your payout request of ${earned} ⭐ has been queued.`);
+    await bot.telegram.sendMessage(SLOT_ADMIN_ID, `💰 User @${ctx.from.username} requested withdrawal of ${earned} ⭐.`);
   } catch (err) {
     console.error(err);
     await ctx.reply("🚫 Error during withdrawal. Try later.");
@@ -159,10 +159,24 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Отправляем инвойс организатору (только организатор может оплатить)
-  await sendPaymentRequest(ctx, battleId, "initiator", updatedBattle.prizePool / 2, updatedBattle.initiatorId);
+  // Информационное сообщение в чат о платеже
+  const paymentKeyboard = {
+    inline_keyboard: [
+      [{ text: "💳 Pay in Private Chat", url: `https://t.me/${bot.options.username}?start=pay_${battleId}_initiator` }]
+    ],
+  };
 
-  await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
+  await ctx.reply(
+    `💡 @${opponent.username}, organizer's payment is needed. Click the button to pay in private chat.`,
+    { reply_markup: paymentKeyboard }
+  );
+
+  // Отправляем инвойс в приватный чат инициатору
+  const initiatorChat = await bot.telegram.sendMessage(
+    updatedBattle.initiatorId,
+    `💳 Please pay your battle entry fee (${updatedBattle.prizePool / 2} ⭐) to start the battle.`
+  );
+  await sendPaymentRequest(bot.telegram, updatedBattle.initiatorId, battleId, "initiator", updatedBattle.prizePool / 2);
 });
 
 // === Ping route ===

@@ -14,7 +14,7 @@ export default function initPvpPayments({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
-    // Проверяем, что именно тот игрок оплатил
+    // ✅ Проверка, что именно тот игрок оплатил
     const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
     if (ctx.from.id !== expectedId) {
       return ctx.reply("⚠️ This invoice is not for you.");
@@ -25,38 +25,36 @@ export default function initPvpPayments({ bot, db }) {
 
       const updated = await getBattleById(db, battleId);
       if (updated.opponentId) {
-        await sendPaymentRequest(ctx, battleId, "opponent", updated.prizePool / 2, updated.opponentId);
-        await ctx.telegram.sendMessage(
+        // Отправляем инвойс оппоненту в приватный чат
+        await bot.telegram.sendMessage(
           updated.opponentId,
-          `💸 The organizer has paid! Now it's your turn to pay for your participation. (${updated.prizePool / 2} ⭐).`
+          `💸 Organizer has paid! Now it's your turn to pay (${updated.prizePool / 2} ⭐).`
         );
+        await sendPaymentRequest(bot.telegram, updated.opponentId, battleId, "opponent", updated.prizePool / 2);
       }
     } else if (role === "opponent") {
       await updateBattle(db, battleId, { status: "opponent_paid" });
     }
 
-    // Проверяем, оба ли заплатили
+    // ✅ Проверяем, оба ли оплатили
     const checkBattle = await getBattleById(db, battleId);
     if (
       (checkBattle.status === "initiator_paid" && role === "opponent") ||
       (checkBattle.status === "opponent_paid" && role === "initiator")
     ) {
       await updateBattle(db, battleId, { status: "paid_by_both" });
-      await startBattle(ctx.bot, db, battleId);
+      await startBattle(bot, db, battleId);
     }
+
+    await ctx.reply("✅ Payment successful! You can return to the battle chat.");
   });
 }
 
 /**
- * Отправка платежа конкретному пользователю
+ * Отправка платежа конкретному пользователю в приватный чат
  */
-export async function sendPaymentRequest(ctx, battleId, role, amount, userId) {
-  // Проверяем, что это правильный пользователь
-  if (ctx.from.id !== userId) {
-    return ctx.reply("⚠️ You are not authorized to pay this invoice.");
-  }
-
-  await ctx.replyWithInvoice({
+export async function sendPaymentRequest(telegram, userId, battleId, role, amount) {
+  await telegram.sendInvoice(userId, {
     title: `PvP Battle Entry`,
     description: `Entry fee (${role})`,
     payload: `pvp_${battleId}_${role}`,

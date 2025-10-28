@@ -162,7 +162,7 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   // Информационное сообщение в чат о платеже
   const paymentKeyboard = {
     inline_keyboard: [
-      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot?start=pay_${battleId}_initiator` }]
+      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot` }]
     ],
   };
 
@@ -171,12 +171,21 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     { reply_markup: paymentKeyboard }
   );
 
-  // Отправляем инвойс в приватный чат инициатору
+  // Отправляем инвойс инициатору в приватный чат
   await bot.telegram.sendMessage(
     updatedBattle.initiatorId,
     `💳 Please pay your battle entry fee (${updatedBattle.prizePool / 2} ⭐) to start the battle.`
   );
   await sendPaymentRequest(bot.telegram, updatedBattle.initiatorId, battleId, "initiator", updatedBattle.prizePool / 2);
+
+  // === Запуск авто-проверки каждые 15 секунд ===
+  const checkInterval = setInterval(async () => {
+    const b = await getBattleById(db, battleId);
+    if (b.status === "paid_by_both") {
+      clearInterval(checkInterval);
+      await startBattle(bot, db, battleId);
+    }
+  }, 15000);
 });
 
 // === Ping route ===

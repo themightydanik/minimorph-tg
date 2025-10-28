@@ -5,7 +5,7 @@ import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import initPvpPayments, { sendPaymentRequest } from "./pvp/pvpPayments.js";
+import initPvpPayments, { createInvoiceForUser } from "./pvp/pvpPayments.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
@@ -53,10 +53,8 @@ bot.command("terms", async (ctx) => {
 
 // === /start handler ===
 bot.start(async (ctx) => {
-  const telegramId = ctx.from.id.toString();
   const firstName = ctx.from.first_name || "there";
-
-  const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
+  const startGameLink = `https://t.me/MinimorphBot?startapp=${ctx.from.id}`;
   const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
   const communityLink = 'https://t.me/minimorph';
 
@@ -78,8 +76,8 @@ bot.start(async (ctx) => {
 
 // === Withdraw stars handler ===
 bot.action('withdraw_stars', async (ctx) => {
+  await ctx.answerCbQuery();
   try {
-    await ctx.answerCbQuery();
     const userRef = doc(db, "users", ctx.from.id.toString());
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) return ctx.reply("⚠️ You don’t have any winnings yet.");
@@ -117,12 +115,9 @@ async function showBattlePrizePool(ctx) {
 }
 
 bot.command("battle", showBattlePrizePool);
+bot.action("start_battle", async (ctx) => { await ctx.answerCbQuery(); await showBattlePrizePool(ctx); });
 
-bot.action("start_battle", async (ctx) => {
-  await ctx.answerCbQuery();
-  await showBattlePrizePool(ctx);
-});
-
+// === Создание батла и отправка оплаты ===
 bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const prizePool = parseInt(ctx.match[1]);
@@ -137,11 +132,12 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   };
 
   await ctx.reply(
-    `🎯 @${initiator.username || initiator.first_name} has created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
+    `🎯 @${initiator.username || initiator.first_name} created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
     { reply_markup: acceptKeyboard }
   );
 });
 
+// === Принятие батла и оплата ===
 bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const battleId = ctx.match[1];
@@ -159,10 +155,10 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Информационное сообщение в чат о платеже
+  // Информационное сообщение в чате
   const paymentKeyboard = {
     inline_keyboard: [
-      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot` }]
+      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot?start=pay_${battleId}_initiator` }]
     ],
   };
 
@@ -171,18 +167,11 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     { reply_markup: paymentKeyboard }
   );
 
-  // Отправляем инвойс инициатору в приватный чат
-  await bot.telegram.sendMessage(
-    updatedBattle.initiatorId,
-    `💳 Please pay your battle entry fee (${updatedBattle.prizePool / 2} ⭐) to start the battle.`
-  );
-  await sendPaymentRequest(bot.telegram, updatedBattle.initiatorId, battleId, "initiator", updatedBattle.prizePool / 2);
-
-  // === Запуск авто-проверки каждые 15 секунд ===
-  const checkInterval = setInterval(async () => {
+  // Запуск авто-проверки каждые 15 секунд
+  const interval = setInterval(async () => {
     const b = await getBattleById(db, battleId);
     if (b.status === "paid_by_both") {
-      clearInterval(checkInterval);
+      clearInterval(interval);
       await startBattle(bot, db, battleId);
     }
   }, 15000);

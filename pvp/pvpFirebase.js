@@ -10,6 +10,8 @@ export async function createBattle(db, user, prizePool) {
     initiatorUsername: user.username,
     prizePool,
     status: "awaiting_accept",
+    initiatorPaid: false, // ✅ отдельные поля оплаты
+    opponentPaid: false,
     createdAt: Date.now(),
   };
   await setDoc(battleRef, data);

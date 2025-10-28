@@ -3,7 +3,8 @@ import { createBattle, getBattleById, updateBattle } from "./pvpFirebase.js";
 import { sendPaymentRequest } from "./pvpPayments.js";
 
 export default function initPvpHandlers({ bot, db }) {
-  // Команда для старта батла
+
+  // Команда /battle полностью управляет PvP
   bot.command("battle", async (ctx) => {
     const user = ctx.from;
     const keyboard = {
@@ -12,25 +13,25 @@ export default function initPvpHandlers({ bot, db }) {
           { text: "💰 Prize Pool: 120 ⭐", callback_data: "pvp_prize_120" },
           { text: "💰 Prize Pool: 250 ⭐", callback_data: "pvp_prize_250" },
         ],
-        [{ text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" }],
+        [
+          { text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" },
+        ]
       ],
     };
     await ctx.reply(
-      `⚔️ @${user.username || user.first_name} — Choose a prize fund for the battle.`,
+      `⚔️ @${user.username || user.first_name}, choose your prize pool:`,
       { reply_markup: keyboard }
     );
   });
 
-  // После выбора призового фонда организатором
+  // Создание батла после выбора призового пула
   bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const prizePool = parseInt(ctx.match[1]);
     const initiator = ctx.from;
 
-    // Создаём батл в Firebase
     const battle = await createBattle(db, initiator, prizePool);
 
-    // Отправляем сообщение с кнопкой для присоединения оппонента
     const acceptKeyboard = {
       inline_keyboard: [
         [{ text: "✅ Accept Battle", callback_data: `pvp_accept_${battle.id}` }],
@@ -38,12 +39,12 @@ export default function initPvpHandlers({ bot, db }) {
     };
 
     await ctx.reply(
-      `🎯 @${initiator.username || initiator.first_name} has created a battle!\n\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ from each player)\n\nWaiting for the opponent...`,
+      `🎯 @${initiator.username || initiator.first_name} has created a battle!\n\nPrize fund: ${prizePool} ⭐\n(${prizePool / 2} ⭐ from each player)\nWaiting for opponent...`,
       { reply_markup: acceptKeyboard }
     );
   });
 
-  // Оппонент принимает вызов
+  // Присоединение оппонента
   bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const battleId = ctx.match[1];
@@ -51,21 +52,18 @@ export default function initPvpHandlers({ bot, db }) {
 
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ This battle is no longer active.");
-    if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ The battle has already started or completed.");
+    if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
 
-    // Обновляем данные батла с оппонентом
     await updateBattle(db, battleId, {
       opponentId: opponent.id,
       opponentUsername: opponent.username,
       status: "awaiting_payment_initiator",
     });
 
-    // Отправляем организатору кнопку оплаты
     await sendPaymentRequest(ctx, battleId, "initiator", battle.prizePool / 2);
 
-    // Сообщаем оппоненту, что нужно дождаться оплаты организатора
     await ctx.reply(
-      `💡 @${opponent.username}, We're waiting for the organizer's payment. After that, you can pay for your participation and start the battle.`
+      `💡 @${opponent.username}, waiting for organizer's payment. Then you can pay to start the battle.`
     );
   });
 }

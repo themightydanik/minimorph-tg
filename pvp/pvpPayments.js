@@ -19,11 +19,12 @@ export default function initPvpPayments({ bot, db }) {
       await updateBattle(db, battleId, { status: "initiator_paid" });
 
       if (battle.opponentId) {
-        // Если оппонент уже присоединился, отправляем оплату оппоненту
-        await sendPaymentRequest(ctx, battleId, "opponent", battle.prizePool / 2);
+        // Отправляем запрос на оплату оппоненту
+        const opponentCtx = { from: { id: battle.opponentId, username: battle.opponentUsername }, replyWithInvoice: ctx.replyWithInvoice.bind(ctx) };
+        await sendPaymentRequest(opponentCtx, battleId, "opponent", battle.prizePool / 2);
       }
     } else if (role === "opponent") {
-      // Оппонент оплатил
+      // Оппонент оплатил → старт батла
       await updateBattle(db, battleId, { status: "ready" });
       await startBattle(bot, db, battleId);
     }

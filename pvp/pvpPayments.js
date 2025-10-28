@@ -1,4 +1,3 @@
-// pvp/pvpPayments.js
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 
 export default function initPvpPayments({ bot, db }) {
@@ -13,32 +12,28 @@ export default function initPvpPayments({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
-    // ✅ Проверка, что именно тот игрок оплатил
     const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
-    if (ctx.from.id !== expectedId) {
-      return ctx.reply("⚠️ This invoice is not for you.");
-    }
+    if (ctx.from.id !== expectedId) return ctx.reply("⚠️ This invoice is not for you.");
 
     if (role === "initiator") {
       await updateBattle(db, battleId, { status: "initiator_paid" });
 
-      const updated = await getBattleById(db, battleId);
-      if (updated.opponentId) {
+      if (battle.opponentId) {
         await bot.telegram.sendMessage(
-          updated.opponentId,
-          `💸 Organizer has paid! Now it's your turn to pay (${updated.prizePool / 2} ⭐).`
+          battle.opponentId,
+          `💸 Organizer has paid! Now it's your turn to pay (${battle.prizePool / 2} ⭐).`
         );
-        await sendPaymentRequest(bot.telegram, updated.opponentId, battleId, "opponent", updated.prizePool / 2);
+        await createInvoiceForUser(bot, battle.opponentId, battleId, "opponent", battle.prizePool / 2);
       }
     } else if (role === "opponent") {
       await updateBattle(db, battleId, { status: "opponent_paid" });
     }
 
-    // ✅ Проверяем, оба ли оплатили
-    const checkBattle = await getBattleById(db, battleId);
+    // Оба оплатили
+    const updated = await getBattleById(db, battleId);
     if (
-      (checkBattle.status === "initiator_paid" && role === "opponent") ||
-      (checkBattle.status === "opponent_paid" && role === "initiator")
+      (updated.status === "initiator_paid" && role === "opponent") ||
+      (updated.status === "opponent_paid" && role === "initiator")
     ) {
       await updateBattle(db, battleId, { status: "paid_by_both" });
     }
@@ -48,10 +43,11 @@ export default function initPvpPayments({ bot, db }) {
 }
 
 /**
- * Отправка платежа конкретному пользователю в приватный чат
+ * Создание инвойса для конкретного пользователя в приватном чате через ctx
  */
-export async function sendPaymentRequest(telegram, userId, battleId, role, amount) {
-  await telegram.sendInvoice(userId, {
+export async function createInvoiceForUser(bot, userId, battleId, role, amount) {
+  await bot.telegram.sendMessage(userId, `💳 Please pay your entry fee (${amount} ⭐)`);
+  await bot.telegram.sendInvoice(userId, {
     title: `PvP Battle Entry`,
     description: `Entry fee (${role})`,
     payload: `pvp_${battleId}_${role}`,

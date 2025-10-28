@@ -1,12 +1,11 @@
 import express from 'express';
 import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
-import fetch from 'node-fetch';
 import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import { sendPaymentRequest } from "./pvp/pvpPayments.js";
+import initPvpPayments, { sendPaymentRequest } from "./pvp/pvpPayments.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
@@ -19,7 +18,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 
-// === Slot Machine Module ===
+// === Slot Module ===
 const slotRouter = initSlotModule({
   bot,
   db,
@@ -33,6 +32,9 @@ const slotRouter = initSlotModule({
   NEWBIE_MULTIPLIER: parseFloat(process.env.SLOT_NEWBIE_MULTIPLIER || "1.3"),
 });
 app.use("/slot", slotRouter);
+
+// === Init PvP Payments ===
+initPvpPayments({ bot, db });
 
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
@@ -99,9 +101,7 @@ bot.action('withdraw_stars', async (ctx) => {
   }
 });
 
-// === PvP Handlers (встроенные) ===
-
-// Показать выбор призового фонда
+// === PvP Handlers ===
 async function showBattlePrizePool(ctx) {
   const user = ctx.from;
   const keyboard = {
@@ -116,16 +116,13 @@ async function showBattlePrizePool(ctx) {
   await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
 }
 
-// === /battle command ===
 bot.command("battle", showBattlePrizePool);
 
-// === Start Battle button ===
 bot.action("start_battle", async (ctx) => {
   await ctx.answerCbQuery();
   await showBattlePrizePool(ctx);
 });
 
-// === Choose prize pool ===
 bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const prizePool = parseInt(ctx.match[1]);
@@ -145,34 +142,28 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   );
 });
 
-// === Opponent accepts battle ===
 bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const battleId = ctx.match[1];
   const opponent = ctx.from;
 
-  // Получаем свежий баттл
   const battle = await getBattleById(db, battleId);
   if (!battle) return ctx.reply("⚠️ Battle no longer active.");
   if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
 
-  // Обновляем баттл в базе
   await updateBattle(db, battleId, {
     opponentId: opponent.id,
     opponentUsername: opponent.username,
     status: "awaiting_payment_initiator",
   });
 
-  // Берём свежие данные после обновления
   const updatedBattle = await getBattleById(db, battleId);
 
   // Отправляем инвойс организатору
   await sendPaymentRequest(ctx, battleId, "initiator", updatedBattle.prizePool / 2);
 
-  // Сообщение оппоненту
   await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
 });
-
 
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));

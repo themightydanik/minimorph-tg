@@ -159,10 +159,10 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Сообщение в общий чат о платеже
+  // Информационное сообщение в чат о платеже
   const paymentKeyboard = {
     inline_keyboard: [
-      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot` }]
+      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot?start=pay_${battleId}_initiator` }]
     ],
   };
 

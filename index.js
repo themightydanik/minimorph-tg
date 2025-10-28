@@ -54,6 +54,15 @@ bot.command("terms", async (ctx) => {
 // === /start handler ===
 bot.start(async (ctx) => {
   const firstName = ctx.from.first_name || "there";
+
+  // Если пришли через кнопку оплаты в приватный чат
+  if (ctx.startPayload && ctx.startPayload.startsWith("pay_")) {
+    const [, battleId, role] = ctx.startPayload.split("_");
+    await createInvoiceForUser(bot, ctx.from.id, battleId, role);
+    return; // прекращаем обычный старт
+  }
+
+  // === обычный стартовый экран ===
   const startGameLink = `https://t.me/MinimorphBot?startapp=${ctx.from.id}`;
   const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
   const communityLink = 'https://t.me/minimorph';
@@ -76,8 +85,8 @@ bot.start(async (ctx) => {
 
 // === Withdraw stars handler ===
 bot.action('withdraw_stars', async (ctx) => {
-  await ctx.answerCbQuery();
   try {
+    await ctx.answerCbQuery();
     const userRef = doc(db, "users", ctx.from.id.toString());
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) return ctx.reply("⚠️ You don’t have any winnings yet.");
@@ -115,9 +124,12 @@ async function showBattlePrizePool(ctx) {
 }
 
 bot.command("battle", showBattlePrizePool);
-bot.action("start_battle", async (ctx) => { await ctx.answerCbQuery(); await showBattlePrizePool(ctx); });
 
-// === Создание батла и отправка оплаты ===
+bot.action("start_battle", async (ctx) => {
+  await ctx.answerCbQuery();
+  await showBattlePrizePool(ctx);
+});
+
 bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const prizePool = parseInt(ctx.match[1]);
@@ -132,12 +144,11 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   };
 
   await ctx.reply(
-    `🎯 @${initiator.username || initiator.first_name} created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
+    `🎯 @${initiator.username || initiator.first_name} has created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
     { reply_markup: acceptKeyboard }
   );
 });
 
-// === Принятие батла и оплата ===
 bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const battleId = ctx.match[1];
@@ -155,7 +166,7 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Информационное сообщение в чате
+  // Информационное сообщение о необходимости оплаты
   const paymentKeyboard = {
     inline_keyboard: [
       [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot?start=pay_${battleId}_initiator` }]
@@ -167,11 +178,11 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     { reply_markup: paymentKeyboard }
   );
 
-  // Запуск авто-проверки каждые 15 секунд
-  const interval = setInterval(async () => {
+  // === Авто-проверка каждые 15 секунд ===
+  const checkInterval = setInterval(async () => {
     const b = await getBattleById(db, battleId);
     if (b.status === "paid_by_both") {
-      clearInterval(interval);
+      clearInterval(checkInterval);
       await startBattle(bot, db, battleId);
     }
   }, 15000);

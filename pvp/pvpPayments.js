@@ -15,18 +15,21 @@ export default function initPvpPayments({ bot, db }) {
     if (!battle) return;
 
     if (role === "initiator") {
-      // Организатор оплатил
-      await updateBattle(db, battleId, { status: "initiator_paid" });
+  // Обновляем статус оплаты организатора
+  await updateBattle(db, battleId, { status: "initiator_paid" });
 
-      // Если оппонент уже присоединился, отправляем ему кнопку оплаты
-      if (battle.opponentId) {
-        await sendPaymentRequest(ctx, battleId, "opponent", battle.prizePool / 2);
-        await ctx.telegram.sendMessage(
-          battle.opponentId,
-          `💸 The organizer has paid! Now it's your turn to pay for your participation. (${battle.prizePool / 2} ⭐).`
-        );
-      }
-    } else if (role === "opponent") {
+  // Берём свежие данные батла
+  const updatedBattle = await getBattleById(db, battleId);
+
+  // Отправляем инвойс оппоненту, если он есть
+  if (updatedBattle.opponentId) {
+    await sendPaymentRequest(ctx, battleId, "opponent", updatedBattle.prizePool / 2);
+    await ctx.telegram.sendMessage(
+      updatedBattle.opponentId,
+      `💸 The organizer has paid! Now it's your turn to pay for your participation. (${updatedBattle.prizePool / 2} ⭐).`
+    );
+  }
+} else if (role === "opponent") {
       // Оппонент оплатил
       await updateBattle(db, battleId, { status: "ready" });
 

@@ -60,7 +60,6 @@ bot.start(async (ctx) => {
   if (ctx.startPayload && ctx.startPayload.startsWith("pay_")) {
     const [, battleId, role] = ctx.startPayload.split("_");
     await createInvoiceForUser(bot, db, ctx.from.id, battleId, role);
-
     return; // прекращаем обычный старт
   }
 
@@ -160,31 +159,28 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   if (!battle) return ctx.reply("⚠️ Battle no longer active.");
   if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
 
+  // Обновляем батл с оппонентом и ставим общий статус ожидания оплаты
   await updateBattle(db, battleId, {
     opponentId: opponent.id,
     opponentUsername: opponent.username,
-    status: "awaiting_payment_initiator",
+    status: "awaiting_payment",
   });
 
-  const updatedBattle = await getBattleById(db, battleId);
+  // Создаём инвойсы сразу для обеих сторон
+  await createInvoiceForUser(bot, db, battle.initiatorId, battleId, "initiator");
+  await createInvoiceForUser(bot, db, opponent.id, battleId, "opponent");
 
-  // Информационное сообщение о необходимости оплаты
-  const paymentKeyboard = {
-    inline_keyboard: [
-      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot?start=pay_${battleId}_initiator` }]
-    ],
-  };
-
+  // Сообщение в группе
   await ctx.reply(
-    `💡 @${opponent.username}, organizer's payment is needed. Click the button to pay in private chat.`,
-    { reply_markup: paymentKeyboard }
+    `💡 @${opponent.username}, both players need to pay to start the battle. Invoices have been sent in private chats.`
   );
 
   // === Авто-проверка каждые 15 секунд ===
   const checkInterval = setInterval(async () => {
     const b = await getBattleById(db, battleId);
-    if (b.status === "paid_by_both") {
+    if (b.initiatorPaid && b.opponentPaid) {
       clearInterval(checkInterval);
+      await updateBattle(db, battleId, { status: "paid_by_both" });
       await startBattle(bot, db, battleId);
     }
   }, 15000);

@@ -118,6 +118,40 @@ bot.action("start_battle", async (ctx) => {
   await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
 });
 
+// === Handle prize pool selection ===
+bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const prizePool = parseInt(ctx.match[1]);
+  const initiator = ctx.from;
+
+  if (prizePool === 0) {
+    // Создаём батл без призового пула
+    const battle = await createBattle(db, initiator, 0);
+    await updateBattle(db, battle.id, {
+      initiatorPaid: true,
+      opponentPaid: true,
+      status: "paid_by_both"
+    });
+
+    await ctx.reply(`🎮 @${initiator.username || initiator.first_name}, your battle without prize is ready! You can start the game.`);
+
+    // Запускаем батл сразу
+    await startBattle(bot, db, battle.id);
+    return;
+  }
+
+  // Для батлов с призовым пулом: создаём запись и ждём оплаты
+  const battle = await createBattle(db, initiator, prizePool);
+
+  // Отправляем сообщение с инструкцией по пополнению wallet
+  await ctx.reply(
+    `💡 @${initiator.username || initiator.first_name}, to play for ${prizePool} ⭐, both players must top up at least ${prizePool / 2} ⭐ to their wallet.`
+  );
+
+  // Здесь твоя логика wallet: инициировать создание батла в Firebase,
+  // затем игроки оплачивают через внутреннюю валюту и при подтверждении запускается startBattle
+});
+
 // Ping route
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 

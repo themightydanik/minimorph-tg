@@ -43,6 +43,6 @@ export async function sendPaymentRequest(ctx, battleId, role, amount) {
     description: `Entry fee (${role})`,
     payload: `pvp_${battleId}_${role}`,
     currency: "XTR",
-    prices: [{ label: "Entry Fee", amount: amount * 1000 }],
+    prices: [{ label: "Entry Fee", amount }],
   });
 }

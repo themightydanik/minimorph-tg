@@ -5,7 +5,7 @@ import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import initPvpPayments, { createInvoiceForUser } from "./pvp/pvpPayments.js";
+import { initPvpWalletLogic } from "./pvp/pvpWallet.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
@@ -34,8 +34,8 @@ const slotRouter = initSlotModule({
 });
 app.use("/slot", slotRouter);
 
-// === Init PvP Payments ===
-initPvpPayments({ bot, db });
+// === PvP Wallet Logic ===
+initPvpWalletLogic({ bot, db });
 
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
@@ -45,8 +45,8 @@ bot.command(["support", "paysupport"], async (ctx) => {
 bot.command("terms", async (ctx) => {
   await ctx.reply(
     "📜 Terms of Use:\n" +
-    "1. Slot and Battle games require Telegram Stars payments.\n" +
-    "2. Rewards are manually processed.\n" +
+    "1. Slot and Battle games may require Stars or internal wallet payments.\n" +
+    "2. Rewards are manually processed or instant in wallet.\n" +
     "3. Gamble responsibly.\n" +
     "4. Contact @Deviola_programmer for help."
   );
@@ -56,14 +56,6 @@ bot.command("terms", async (ctx) => {
 bot.start(async (ctx) => {
   const firstName = ctx.from.first_name || "there";
 
-  // Если пришли через кнопку оплаты в приватный чат
-  if (ctx.startPayload && ctx.startPayload.startsWith("pay_")) {
-    const [, battleId, role] = ctx.startPayload.split("_");
-    await createInvoiceForUser(bot, db, ctx.from.id, battleId, role);
-    return; // прекращаем обычный старт
-  }
-
-  // === обычный стартовый экран ===
   const startGameLink = `https://t.me/MinimorphBot?startapp=${ctx.from.id}`;
   const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
   const communityLink = 'https://t.me/minimorph';
@@ -71,8 +63,7 @@ bot.start(async (ctx) => {
   const keyboard = {
     inline_keyboard: [
       [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
-      [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
-      [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
+      [{ text: '💳 Buy Slot Ticket', callback_data: 'buy_ticket' }],
       [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
       [{ text: '👥 Join Community', url: communityLink }],
       [{ text: '🎮 Minimorph Game', url: startGameLink }],
@@ -86,110 +77,51 @@ bot.start(async (ctx) => {
 
 // === Withdraw stars handler ===
 bot.action('withdraw_stars', async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const userRef = doc(db, "users", ctx.from.id.toString());
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) return ctx.reply("⚠️ You don’t have any winnings yet.");
+  await ctx.answerCbQuery();
+  const userRef = doc(db, "users", ctx.from.id.toString());
+  const userSnap = await getDoc(userRef);
+  if (!userSnap.exists()) return ctx.reply("⚠️ You don’t have any winnings yet.");
 
-    const data = userSnap.data();
-    const earned = data.slotEarnedStars || 0;
-    if (earned < 100) return ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Current: ${earned} ⭐`);
+  const data = userSnap.data();
+  const earned = data.slotEarnedStars || 0;
+  if (earned < 100) return ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Current: ${earned} ⭐`);
 
-    await updateDoc(userRef, {
-      pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,
-      slotEarnedStars: 0,
-    });
+  await updateDoc(userRef, {
+    pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,
+    slotEarnedStars: 0,
+  });
 
-    await ctx.reply(`✅ Your payout request of ${earned} ⭐ has been queued.`);
-    await bot.telegram.sendMessage(SLOT_ADMIN_ID, `💰 User @${ctx.from.username} requested withdrawal of ${earned} ⭐.`);
-  } catch (err) {
-    console.error(err);
-    await ctx.reply("🚫 Error during withdrawal. Try later.");
-  }
+  await ctx.reply(`✅ Your payout request of ${earned} ⭐ has been queued.`);
+  await bot.telegram.sendMessage(SLOT_ADMIN_ID, `💰 User @${ctx.from.username} requested withdrawal of ${earned} ⭐.`);
 });
 
-// === PvP Handlers ===
-async function showBattlePrizePool(ctx) {
+// === Battle commands ===
+bot.action("start_battle", async (ctx) => {
+  await ctx.answerCbQuery();
   const user = ctx.from;
+
   const keyboard = {
     inline_keyboard: [
       [
         { text: "💰 2 ⭐", callback_data: "pvp_prize_2" },
         { text: "💰 250 ⭐", callback_data: "pvp_prize_250" },
       ],
-      [{ text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" }],
-    ],
+      [
+        { text: "💎 500 ⭐", callback_data: "pvp_prize_500" }
+      ],
+      [
+        { text: "🎯 Without Prize", callback_data: "pvp_prize_0" }
+      ]
+    ]
   };
+
   await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
-}
-
-bot.command("battle", showBattlePrizePool);
-
-bot.action("start_battle", async (ctx) => {
-  await ctx.answerCbQuery();
-  await showBattlePrizePool(ctx);
 });
 
-bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const prizePool = parseInt(ctx.match[1]);
-  const initiator = ctx.from;
-
-  const battle = await createBattle(db, initiator, prizePool);
-
-  const acceptKeyboard = {
-    inline_keyboard: [
-      [{ text: "✅ Accept Battle", callback_data: `pvp_accept_${battle.id}` }],
-    ],
-  };
-
-  await ctx.reply(
-    `🎯 @${initiator.username || initiator.first_name} has created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
-    { reply_markup: acceptKeyboard }
-  );
-});
-
-bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const battleId = ctx.match[1];
-  const opponent = ctx.from;
-
-  const battle = await getBattleById(db, battleId);
-  if (!battle) return ctx.reply("⚠️ Battle no longer active.");
-  if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
-
-  // Обновляем батл с оппонентом и ставим общий статус ожидания оплаты
-  await updateBattle(db, battleId, {
-    opponentId: opponent.id,
-    opponentUsername: opponent.username,
-    status: "awaiting_payment",
-  });
-
-  // Создаём инвойсы сразу для обеих сторон
-  await createInvoiceForUser(bot, db, battle.initiatorId, battleId, "initiator");
-  await createInvoiceForUser(bot, db, opponent.id, battleId, "opponent");
-
-  // Сообщение в группе
-  await ctx.reply(
-    `💡 @${opponent.username}, both players need to pay to start the battle. Invoices have been sent in private chats.`
-  );
-
-  // === Авто-проверка каждые 15 секунд ===
-  const checkInterval = setInterval(async () => {
-    const b = await getBattleById(db, battleId);
-    if (b.initiatorPaid && b.opponentPaid) {
-      clearInterval(checkInterval);
-      await updateBattle(db, battleId, { status: "paid_by_both" });
-      await startBattle(bot, db, battleId);
-    }
-  }, 15000);
-});
-
-// === Ping route ===
+// Ping route
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 
-// === Start server & bot ===
+// Start server & bot
 app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
   await bot.launch();

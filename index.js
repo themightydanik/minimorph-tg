@@ -35,9 +35,7 @@ app.use("/slot", slotRouter);
 // === Initialize PvP Battle Module ===
 initPvpBattleModule({ bot, db, ADMIN_ID: SLOT_ADMIN_ID });
 
-app.use(express.json());
-
-// === Basic Commands ===
+// === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
   try {
     await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
@@ -60,7 +58,7 @@ bot.command("terms", async (ctx) => {
   }
 });
 
-// === /start handler (with referral logic) ===
+// === /start handler ===
 bot.start(async (ctx) => {
   try {
     const telegramId = ctx.from.id.toString();
@@ -100,7 +98,8 @@ bot.start(async (ctx) => {
         [{ text: '👥 Join Community', url: communityLink }],
         [{ text: '🎮 Minimorph Game', url: startGameLink }],
         [{ text: '📘 How to Play', url: howToPlayLink }],
-        [{ text: '⚔️ Start Battle (PvP)', callback_data: 'start_battle' }],
+        // 🚨 Замечание: кнопка PvP теперь только вызывает команду
+        [{ text: '⚔️ Start Battle (PvP)', callback_data: 'battle_command' }],
       ]
     };
 
@@ -111,23 +110,11 @@ bot.start(async (ctx) => {
   }
 });
 
-// === Inline button to start battle ===
-bot.action("start_battle", async (ctx) => {
+// === Inline button to start PvP via command ===
+bot.action("battle_command", async (ctx) => {
   await ctx.answerCbQuery();
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: "🎯 Prize Pool: 120 ⭐ (60 each)", callback_data: "create_battle_120" }
-      ],
-      [
-        { text: "💥 Prize Pool: 250 ⭐ (125 each)", callback_data: "create_battle_250" }
-      ],
-      [
-        { text: "🔥 Prize Pool: 500 ⭐ (250 each)", callback_data: "create_battle_500" }
-      ]
-    ]
-  };
-  await ctx.reply("⚔️ Choose your prize pool to create a battle:", { reply_markup: keyboard });
+  // Просто вызываем команду /battle модуля PvP
+  await bot.telegram.sendMessage(ctx.from.id, "/battle");
 });
 
 // === Withdraw stars ===

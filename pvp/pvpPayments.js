@@ -2,15 +2,14 @@
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 
 export default function initPvpPayments({ bot, db }) {
-  // Сохраняем ссылку на Firestore внутри бота, чтобы не потерять
   bot.db = db;
 
-  // === Когда пользователь подтверждает оплату ===
+  // ✅ Telegram PreCheckout
   bot.on("pre_checkout_query", async (ctx) => {
     await ctx.answerPreCheckoutQuery(true);
   });
 
-  // === Когда оплата успешна ===
+  // ✅ После успешной оплаты
   bot.on("successful_payment", async (ctx) => {
     try {
       const payload = ctx.message.successful_payment.invoice_payload;
@@ -19,22 +18,19 @@ export default function initPvpPayments({ bot, db }) {
       const battle = await getBattleById(db, battleId);
       if (!battle) return;
 
+      // Проверяем, что платит правильный пользователь
       const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
       if (ctx.from.id !== expectedId) {
         return ctx.reply("⚠️ This invoice is not for you.");
       }
 
-      // === Обновляем статус оплаты ===
-      if (role === "initiator") await updateBattle(db, battleId, { status: "initiator_paid" });
-      if (role === "opponent") await updateBattle(db, battleId, { status: "opponent_paid" });
+      // ✅ Обновляем отдельные поля
+      if (role === "initiator") await updateBattle(db, battleId, { initiatorPaid: true });
+      if (role === "opponent") await updateBattle(db, battleId, { opponentPaid: true });
 
+      // Проверяем, оплатили ли оба
       const updated = await getBattleById(db, battleId);
-
-      // === Проверяем, оплатили ли оба ===
-      if (
-        (updated.status === "initiator_paid" && role === "opponent") ||
-        (updated.status === "opponent_paid" && role === "initiator")
-      ) {
+      if (updated.initiatorPaid && updated.opponentPaid) {
         await updateBattle(db, battleId, { status: "paid_by_both" });
       }
 
@@ -44,10 +40,10 @@ export default function initPvpPayments({ bot, db }) {
       await ctx.reply("⚠️ Payment error. Please try again later.");
     }
   });
-}
+};
 
 /**
- * === Создание инвойса в приватном чате ===
+ * Создание инвойса для пользователя
  */
 export async function createInvoiceForUser(bot, db, userId, battleId, role) {
   try {

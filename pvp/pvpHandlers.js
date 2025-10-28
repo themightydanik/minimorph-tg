@@ -1,7 +1,6 @@
 import { createBattle, getBattleById, updateBattle } from "./pvpFirebase.js";
 import { sendPaymentRequest } from "./pvpPayments.js";
 
-// --- Экспортируем функцию, чтобы можно было вызвать из index.js ---
 export async function showBattlePrizePool(ctx) {
   const user = ctx.from;
   const keyboard = {
@@ -13,19 +12,20 @@ export async function showBattlePrizePool(ctx) {
       [{ text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" }],
     ],
   };
-  await ctx.reply(
-    `⚔️ @${user.username || user.first_name}, choose your prize pool:`,
-    { reply_markup: keyboard }
-  );
+  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
 }
 
 export default function initPvpHandlers({ bot, db }) {
-  // --- команда /battle теперь просто вызывает ту же функцию ---
-  bot.command("battle", async (ctx) => {
+  // === /battle command ===
+  bot.command("battle", showBattlePrizePool);
+
+  // === Callback для кнопки "Start Battle" в меню ===
+  bot.action("start_battle", async (ctx) => {
+    await ctx.answerCbQuery();
     await showBattlePrizePool(ctx);
   });
 
-  // --- дальше все остальные action остаются без изменений ---
+  // === Callback для выбора призового фонда ===
   bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const prizePool = parseInt(ctx.match[1]);
@@ -40,11 +40,12 @@ export default function initPvpHandlers({ bot, db }) {
     };
 
     await ctx.reply(
-      `🎯 @${initiator.username || initiator.first_name} has created a battle!\n\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ from each player)\n\nWaiting for the opponent...`,
+      `🎯 @${initiator.username || initiator.first_name} has created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ from each player)\nWaiting for the opponent...`,
       { reply_markup: acceptKeyboard }
     );
   });
 
+  // === Callback для присоединения оппонента ===
   bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const battleId = ctx.match[1];
@@ -52,7 +53,7 @@ export default function initPvpHandlers({ bot, db }) {
 
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ This battle is no longer active.");
-    if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ The battle has already started or completed.");
+    if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
 
     await updateBattle(db, battleId, {
       opponentId: opponent.id,
@@ -62,8 +63,6 @@ export default function initPvpHandlers({ bot, db }) {
 
     await sendPaymentRequest(ctx, battleId, "initiator", battle.prizePool / 2);
 
-    await ctx.reply(
-      `💡 @${opponent.username}, We're waiting for the organizer's payment. After that, you can pay for your participation and start the battle.`
-    );
+    await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
   });
 }

@@ -151,20 +151,28 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   const battleId = ctx.match[1];
   const opponent = ctx.from;
 
+  // Получаем свежий баттл
   const battle = await getBattleById(db, battleId);
   if (!battle) return ctx.reply("⚠️ Battle no longer active.");
   if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
 
+  // Обновляем баттл в базе
   await updateBattle(db, battleId, {
     opponentId: opponent.id,
     opponentUsername: opponent.username,
     status: "awaiting_payment_initiator",
   });
 
-  await sendPaymentRequest(ctx, battleId, "initiator", battle.prizePool / 2);
+  // Берём свежие данные после обновления
+  const updatedBattle = await getBattleById(db, battleId);
 
+  // Отправляем инвойс организатору
+  await sendPaymentRequest(ctx, battleId, "initiator", updatedBattle.prizePool / 2);
+
+  // Сообщение оппоненту
   await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
 });
+
 
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));

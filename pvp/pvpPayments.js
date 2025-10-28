@@ -15,25 +15,16 @@ export default function initPvpPayments({ bot, db }) {
     const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
     if (ctx.from.id !== expectedId) return ctx.reply("⚠️ This invoice is not for you.");
 
-    if (role === "initiator") {
-      await updateBattle(db, battleId, { status: "initiator_paid" });
+    // Обновляем статус
+    if (role === "initiator") await updateBattle(db, battleId, { status: "initiator_paid" });
+    if (role === "opponent") await updateBattle(db, battleId, { status: "opponent_paid" });
 
-      if (battle.opponentId) {
-        await bot.telegram.sendMessage(
-          battle.opponentId,
-          `💸 Organizer has paid! Now it's your turn to pay (${battle.prizePool / 2} ⭐).`
-        );
-        await createInvoiceForUser(bot, battle.opponentId, battleId, "opponent", battle.prizePool / 2);
-      }
-    } else if (role === "opponent") {
-      await updateBattle(db, battleId, { status: "opponent_paid" });
-    }
+    const updatedBattle = await getBattleById(db, battleId);
 
-    // Оба оплатили
-    const updated = await getBattleById(db, battleId);
+    // Если обе стороны оплатили
     if (
-      (updated.status === "initiator_paid" && role === "opponent") ||
-      (updated.status === "opponent_paid" && role === "initiator")
+      (updatedBattle.status === "initiator_paid" && role === "opponent") ||
+      (updatedBattle.status === "opponent_paid" && role === "initiator")
     ) {
       await updateBattle(db, battleId, { status: "paid_by_both" });
     }
@@ -43,10 +34,14 @@ export default function initPvpPayments({ bot, db }) {
 }
 
 /**
- * Создание инвойса для конкретного пользователя в приватном чате через ctx
+ * Создание инвойса пользователю в приватном чате
  */
-export async function createInvoiceForUser(bot, userId, battleId, role, amount) {
-  await bot.telegram.sendMessage(userId, `💳 Please pay your entry fee (${amount} ⭐)`);
+export async function createInvoiceForUser(bot, userId, battleId, role) {
+  const battle = await getBattleById(bot.db, battleId);
+  if (!battle) return;
+
+  const amount = battle.prizePool / 2;
+
   await bot.telegram.sendInvoice(userId, {
     title: `PvP Battle Entry`,
     description: `Entry fee (${role})`,

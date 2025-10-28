@@ -159,10 +159,10 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Информационное сообщение в чат о платеже
+  // Сообщение в общий чат о платеже
   const paymentKeyboard = {
     inline_keyboard: [
-      [{ text: "💳 Pay in Private Chat", url: `https://t.me/${bot.options.username}?start=pay_${battleId}_initiator` }]
+      [{ text: "💳 Pay in Private Chat", url: `https://t.me/MinimorphBot` }]
     ],
   };
 
@@ -172,7 +172,7 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
   );
 
   // Отправляем инвойс в приватный чат инициатору
-  const initiatorChat = await bot.telegram.sendMessage(
+  await bot.telegram.sendMessage(
     updatedBattle.initiatorId,
     `💳 Please pay your battle entry fee (${updatedBattle.prizePool / 2} ⭐) to start the battle.`
   );

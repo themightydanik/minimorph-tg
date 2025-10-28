@@ -159,8 +159,8 @@ bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Отправляем инвойс организатору
-  await sendPaymentRequest(ctx, battleId, "initiator", updatedBattle.prizePool / 2);
+  // Отправляем инвойс организатору (только организатор может оплатить)
+  await sendPaymentRequest(ctx, battleId, "initiator", updatedBattle.prizePool / 2, updatedBattle.initiatorId);
 
   await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
 });

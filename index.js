@@ -33,12 +33,7 @@ const slotRouter = initSlotModule({
 app.use("/slot", slotRouter);
 
 // === Initialize PvP Battle Module ===
-const pvpRouter = initPvpBattleModule({
-  bot,
-  db,
-  ADMIN_ID: SLOT_ADMIN_ID,
-});
-app.use("/battle", pvpRouter);
+initPvpBattleModule({ bot, db, ADMIN_ID: SLOT_ADMIN_ID });
 
 app.use(express.json());
 

@@ -1,100 +1,70 @@
 // pvp/pvpWallet.js
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { createBattle, getBattleById, updateBattle } from "./pvpFirebase.js";
+import { getBattleById, updateBattle } from "./pvpFirebase.js";
 import { startBattle } from "./pvpGameLogic.js";
 
 export function initPvpWalletLogic({ bot, db }) {
+  bot.db = db;
 
-  bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
+  // === Пополнение Wallet в боте ===
+  bot.action(/^wallet_topup$/, async (ctx) => {
     await ctx.answerCbQuery();
-    const prizePool = parseInt(ctx.match[1]);
-    const initiator = ctx.from;
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: "Add 1 ⭐", callback_data: "wallet_add_1" }],
+        [{ text: "Add 125 ⭐", callback_data: "wallet_add_125" }],
+        [{ text: "Add 250 ⭐", callback_data: "wallet_add_250" }],
+      ],
+    };
+    await ctx.reply("💰 Choose amount to add to your Wallet:", { reply_markup: keyboard });
+  });
 
-    // Создаем батл в Firebase
-    const battle = await createBattle(db, initiator, prizePool);
+  bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const amount = parseInt(ctx.match[1]);
+    const userRef = doc(db, "users", ctx.from.id.toString());
+    const userSnap = await getDoc(userRef);
 
-    if (prizePool === 0) {
-      // Игра без призового пула
-      await updateBattle(db, battle.id, {
-        initiatorPaid: true,
-        opponentPaid: true,
-        status: "ready_to_start",
-        turn: "initiator"
-      });
-      await ctx.reply(`🎯 Battle created without prize pool! @${initiator.username} can start playing immediately.`);
-      return;
+    if (!userSnap.exists()) {
+      await updateDoc(userRef, { wallet: amount });
+    } else {
+      const data = userSnap.data();
+      await updateDoc(userRef, { wallet: (data.wallet || 0) + amount });
     }
 
-    // Игра с призовым пулом — показываем инфо для пополнения кошелька
-    await ctx.reply(
-      `💡 PvP Battle created with prize pool ${prizePool} ⭐.\n` +
-      `Each player must fund at least ${prizePool / 2} ⭐ to start.\n` +
-      `Use buttons below to top up your wallet.`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "💎 Add 1 ⭐", callback_data: `wallet_add_${battle.id}_1` },
-              { text: "💎 Add 125 ⭐", callback_data: `wallet_add_${battle.id}_125` },  
-            ],
-            [
-              { text: "💎 Add 250 ⭐", callback_data: `wallet_add_${battle.id}_250` }
-            ],
-            [
-              { text: "✅ Pay using Wallet", callback_data: `battle_pay_${battle.id}` }
-            ],
-          ]
-        }
-      }
-    );
+    await ctx.reply(`✅ Added ${amount} ⭐ to your Wallet! Current balance updated.`);
   });
 
-  // Пополнение кошелька
-  bot.action(/^wallet_add_(.+)_(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const battleId = ctx.match[1];
-    const amount = parseInt(ctx.match[2]);
-    const userId = ctx.from.id.toString();
-
-    const userRef = doc(db, "users", userId);
-    const snap = await getDoc(userRef);
-    const wallet = snap.exists() ? (snap.data().wallet || 0) : 0;
-    await updateDoc(userRef, { wallet: wallet + amount });
-
-    await ctx.reply(`💰 Wallet topped up: +${amount} ⭐. Current balance: ${wallet + amount} ⭐`);
-  });
-
-  // Оплата участия в батле через кошелек
-  bot.action(/^battle_pay_(.+)$/, async (ctx) => {
+  // === Оплата батла из Wallet ===
+  bot.action(/^pvp_pay_wallet_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const battleId = ctx.match[1];
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ Battle not found.");
 
-    const userId = ctx.from.id.toString();
-    const userRef = doc(db, "users", userId);
+    const userRef = doc(db, "users", ctx.from.id.toString());
     const userSnap = await getDoc(userRef);
-    const wallet = userSnap.exists() ? (userSnap.data().wallet || 0) : 0;
-    const required = battle.prizePool / 2;
-
-    if (wallet < required) return ctx.reply(`⚠️ Not enough balance. You need at least ${required} ⭐.`);
-
-    await updateDoc(userRef, { wallet: wallet - required });
-
-    if (userId == battle.initiatorId.toString()) {
-      await updateBattle(db, battleId, { initiatorPaid: true });
-    } else if (userId == battle.opponentId.toString()) {
-      await updateBattle(db, battleId, { opponentPaid: true });
+    if (!userSnap.exists() || (userSnap.data().wallet || 0) < battle.prizePool / 2) {
+      return ctx.reply("⚠️ Not enough balance in Wallet. Please top up first.");
     }
 
-    await ctx.reply(`✅ Payment confirmed for battle!`);
+    // Списываем средства и отмечаем оплату
+    const amount = battle.prizePool / 2;
+    await updateDoc(userRef, { wallet: userSnap.data().wallet - amount });
 
-    // Если оба заплатили — стартуем батл
-    const updated = await getBattleById(db, battleId);
-    if (updated.initiatorPaid && updated.opponentPaid) {
+    const updateData = {};
+    if (ctx.from.id === battle.initiatorId) updateData.initiatorPaid = true;
+    if (ctx.from.id === battle.opponentId) updateData.opponentPaid = true;
+    await updateBattle(db, battleId, updateData);
+
+    await ctx.reply(`✅ Paid ${amount} ⭐ from Wallet!`);
+
+    // Если оба оплатили — запускаем батл
+    const updatedBattle = await getBattleById(db, battleId);
+    if ((updatedBattle.initiatorPaid && updatedBattle.opponentPaid) ||
+        updatedBattle.prizePool === 0) {
       await updateBattle(db, battleId, { status: "paid_by_both" });
       await startBattle(bot, db, battleId);
     }
   });
-
 }

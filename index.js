@@ -3,9 +3,11 @@ import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import initSlotModule from "./slot.js";
-import initPvpBattleModule from "./pvp/pvpBattle.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
+import { sendPaymentRequest } from "./pvp/pvpPayments.js";
+import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
 
@@ -17,7 +19,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 
-// === Initialize Slot Machine Module ===
+// === Slot Machine Module ===
 const slotRouter = initSlotModule({
   bot,
   db,
@@ -32,137 +34,144 @@ const slotRouter = initSlotModule({
 });
 app.use("/slot", slotRouter);
 
-// === Initialize PvP Battle Module ===
-initPvpBattleModule({ bot, db, ADMIN_ID: SLOT_ADMIN_ID });
-
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
-  try {
-    await ctx.reply("💬 For support, please contact @Deviola_programmer.\nWe’ll help you resolve any issues as soon as possible.");
-  } catch (err) {
-    console.error("❌ /support command error:", err);
-  }
+  await ctx.reply("💬 For support, please contact @Deviola_programmer.");
 });
 
 bot.command("terms", async (ctx) => {
-  try {
-    await ctx.reply(
-      "📜 Terms of Use:\n\n" +
-      "1. Slot and Battle games require Telegram Stars payments.\n" +
-      "2. Rewards are manually processed and paid in Stars.\n" +
-      "3. Gamble responsibly — play for fun.\n" +
-      "4. For help, contact @Deviola_programmer."
-    );
-  } catch (err) {
-    console.error("❌ /terms command error:", err);
-  }
+  await ctx.reply(
+    "📜 Terms of Use:\n" +
+    "1. Slot and Battle games require Telegram Stars payments.\n" +
+    "2. Rewards are manually processed.\n" +
+    "3. Gamble responsibly.\n" +
+    "4. Contact @Deviola_programmer for help."
+  );
 });
 
 // === /start handler ===
 bot.start(async (ctx) => {
-  try {
-    const telegramId = ctx.from.id.toString();
-    const firstName = ctx.from.first_name || "there";
-    const payload = ctx.startPayload || "";
-    let invitedBy = null;
+  const telegramId = ctx.from.id.toString();
+  const firstName = ctx.from.first_name || "there";
 
-    if (payload.startsWith("ref_")) invitedBy = payload.slice(4);
+  const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
+  const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
+  const communityLink = 'https://t.me/minimorph';
 
-    if (invitedBy && invitedBy !== telegramId) {
-      try {
-        await fetch(`${process.env.BASE_URL}/referral/referral`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            telegramId,
-            invitedBy,
-            username: ctx.from.username,
-            first_name: firstName
-          })
-        });
-      } catch (err) {
-        console.error("❌ Referral POST error:", err);
-      }
-    }
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
+      [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
+      [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
+      [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
+      [{ text: '👥 Join Community', url: communityLink }],
+      [{ text: '🎮 Minimorph Game', url: startGameLink }],
+      [{ text: '📘 How to Play', url: howToPlayLink }],
+      [{ text: '⚔️ Start Battle (PvP)', callback_data: 'start_battle' }],
+    ]
+  };
 
-    const startGameLink = `https://t.me/MinimorphBot?startapp=${telegramId}`;
-    const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
-    const communityLink = 'https://t.me/minimorph';
-
-    const keyboard = {
-      inline_keyboard: [
-        [{ text: '🎰 Play Slot Machine', callback_data: 'play_slot' }],
-        [{ text: '💳 Buy Slot Ticket (20 ⭐ = 3 spins)', callback_data: 'buy_ticket' }],
-        [{ text: '🔄 Exchange Points for Free Spins', callback_data: 'exchange_points' }],
-        [{ text: '💰 Withdraw Stars', callback_data: 'withdraw_stars' }],
-        [{ text: '👥 Join Community', url: communityLink }],
-        [{ text: '🎮 Minimorph Game', url: startGameLink }],
-        [{ text: '📘 How to Play', url: howToPlayLink }],
-        // 🚨 Замечание: кнопка PvP теперь только вызывает команду
-        [{ text: '⚔️ Start Battle (PvP)', callback_data: 'battle_command' }],
-      ]
-    };
-
-    await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
-
-  } catch (err) {
-    console.error("❌ Error in /start handler:", err);
-  }
+  await ctx.reply(`👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`, { reply_markup: keyboard });
 });
 
-// === Inline button to start PvP via command ===
-// === Inline button to start battle ===
-bot.action("start_battle", async (ctx) => {
-  await ctx.answerCbQuery();
-
-  // вызываем прямо функцию из pvpHandlers
-  showBattlePrizePool(ctx);
-});
-
-
-// === Withdraw stars ===
+// === Withdraw stars handler ===
 bot.action('withdraw_stars', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const userId = ctx.from.id.toString();
-    const userRef = doc(db, "users", userId);
+    const userRef = doc(db, "users", ctx.from.id.toString());
     const userSnap = await getDoc(userRef);
-
-    if (!userSnap.exists()) return await ctx.reply("⚠️ You don’t have any winnings yet.");
+    if (!userSnap.exists()) return ctx.reply("⚠️ You don’t have any winnings yet.");
 
     const data = userSnap.data();
     const earned = data.slotEarnedStars || 0;
-
-    if (earned < 100) return await ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Your current balance: ${earned} ⭐️`);
+    if (earned < 100) return ctx.reply(`💡 Minimum withdrawal is 100 ⭐️. Current: ${earned} ⭐️`);
 
     await updateDoc(userRef, {
       pendingPayoutStars: (data.pendingPayoutStars || 0) + earned,
       slotEarnedStars: 0,
     });
 
-    await ctx.reply(`✅ Your payout request of ${earned} ⭐️ has been queued. Admin will send Stars manually.`);
-
-    await bot.telegram.sendMessage(
-      SLOT_ADMIN_ID,
-      `💰 User @${ctx.from.username || ctx.from.id} requested withdrawal of ${earned} ⭐️.`
-    );
-
+    await ctx.reply(`✅ Your payout request of ${earned} ⭐️ has been queued.`);
+    await bot.telegram.sendMessage(SLOT_ADMIN_ID, `💰 User @${ctx.from.username} requested withdrawal of ${earned} ⭐️.`);
   } catch (err) {
-    console.error("❌ withdraw_stars action error:", err);
-    await ctx.reply("🚫 Error during withdrawal. Please try again later.");
+    console.error(err);
+    await ctx.reply("🚫 Error during withdrawal. Try later.");
   }
+});
+
+// === PvP Handlers (встроенные) ===
+
+// Показать выбор призового фонда
+async function showBattlePrizePool(ctx) {
+  const user = ctx.from;
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "💰 Prize Pool: 120 ⭐", callback_data: "pvp_prize_120" },
+        { text: "💰 Prize Pool: 250 ⭐", callback_data: "pvp_prize_250" },
+      ],
+      [{ text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" }],
+    ],
+  };
+  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
+}
+
+// === /battle command ===
+bot.command("battle", showBattlePrizePool);
+
+// === Start Battle button ===
+bot.action("start_battle", async (ctx) => {
+  await ctx.answerCbQuery();
+  await showBattlePrizePool(ctx);
+});
+
+// === Choose prize pool ===
+bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const prizePool = parseInt(ctx.match[1]);
+  const initiator = ctx.from;
+
+  const battle = await createBattle(db, initiator, prizePool);
+
+  const acceptKeyboard = {
+    inline_keyboard: [
+      [{ text: "✅ Accept Battle", callback_data: `pvp_accept_${battle.id}` }],
+    ],
+  };
+
+  await ctx.reply(
+    `🎯 @${initiator.username || initiator.first_name} has created a battle!\nPrize fund: ${prizePool} ⭐\n( ${prizePool / 2} ⭐ each)\nWaiting for opponent...`,
+    { reply_markup: acceptKeyboard }
+  );
+});
+
+// === Opponent accepts battle ===
+bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const battleId = ctx.match[1];
+  const opponent = ctx.from;
+
+  const battle = await getBattleById(db, battleId);
+  if (!battle) return ctx.reply("⚠️ Battle no longer active.");
+  if (battle.status !== "awaiting_accept") return ctx.reply("⚠️ Battle already started or finished.");
+
+  await updateBattle(db, battleId, {
+    opponentId: opponent.id,
+    opponentUsername: opponent.username,
+    status: "awaiting_payment_initiator",
+  });
+
+  await sendPaymentRequest(ctx, battleId, "initiator", battle.prizePool / 2);
+
+  await ctx.reply(`💡 @${opponent.username}, waiting for organizer's payment.`);
 });
 
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 
-// === Start server and launch bot ===
+// === Start server & bot ===
 app.listen(port, async () => {
-  console.log(`🚀 Express server listening on port ${port}`);
-  try {
-    await bot.launch();
-    console.log("🤖 Bot launched with long polling");
-  } catch (err) {
-    console.error("❌ Failed to launch bot:", err);
-  }
+  console.log(`🚀 Server listening on port ${port}`);
+  await bot.launch();
+  console.log("🤖 Bot launched with long polling");
 });

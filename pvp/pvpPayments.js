@@ -9,37 +9,39 @@ export default function initPvpPayments({ bot, db }) {
 
   bot.on("successful_payment", async (ctx) => {
     const payload = ctx.message.successful_payment.invoice_payload;
-    const [type, battleId, role] = payload.split("_"); // "pvp_<id>_initiator" или "pvp_<id>_opponent"
+    const [type, battleId, role] = payload.split("_");
 
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
     if (role === "initiator") {
-  // Обновляем статус оплаты организатора
-  await updateBattle(db, battleId, { status: "initiator_paid" });
+      await updateBattle(db, battleId, { status: "initiator_paid" });
 
-  // Берём свежие данные батла
-  const updatedBattle = await getBattleById(db, battleId);
+      const updated = await getBattleById(db, battleId);
+      if (updated.opponentId) {
+        await sendPaymentRequest(ctx, battleId, "opponent", updated.prizePool / 2);
+        await ctx.telegram.sendMessage(
+          updated.opponentId,
+          `💸 The organizer has paid! Now it's your turn to pay for your participation. (${updated.prizePool / 2} ⭐).`
+        );
+      }
 
-  // Отправляем инвойс оппоненту, если он есть
-  if (updatedBattle.opponentId) {
-    await sendPaymentRequest(ctx, battleId, "opponent", updatedBattle.prizePool / 2);
-    await ctx.telegram.sendMessage(
-      updatedBattle.opponentId,
-      `💸 The organizer has paid! Now it's your turn to pay for your participation. (${updatedBattle.prizePool / 2} ⭐).`
-    );
-  }
-} else if (role === "opponent") {
-      // Оппонент оплатил
-      await updateBattle(db, battleId, { status: "ready" });
+    } else if (role === "opponent") {
+      await updateBattle(db, battleId, { status: "opponent_paid" });
+    }
 
-      // Запускаем батл
+    // Проверяем, оба ли заплатили
+    const checkBattle = await getBattleById(db, battleId);
+    if (
+      (checkBattle.status === "initiator_paid" && role === "opponent") ||
+      (checkBattle.status === "opponent_paid" && role === "initiator")
+    ) {
+      await updateBattle(db, battleId, { status: "paid_by_both" });
       await startBattle(ctx.bot, db, battleId);
     }
   });
 }
 
-// Отправка запроса на оплату конкретному игроку
 export async function sendPaymentRequest(ctx, battleId, role, amount) {
   await ctx.replyWithInvoice({
     title: `PvP Battle Entry`,

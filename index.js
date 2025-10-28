@@ -106,12 +106,8 @@ bot.action("start_battle", async (ctx) => {
         { text: "💰 2 ⭐", callback_data: "pvp_prize_2" },
         { text: "💰 250 ⭐", callback_data: "pvp_prize_250" },
       ],
-      [
-        { text: "💎 500 ⭐", callback_data: "pvp_prize_500" }
-      ],
-      [
-        { text: "🎯 Without Prize", callback_data: "pvp_prize_0" }
-      ]
+      [{ text: "💎 500 ⭐", callback_data: "pvp_prize_500" }],
+      [{ text: "🎯 Without Prize", callback_data: "pvp_prize_0" }]
     ]
   };
 
@@ -143,13 +139,17 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   // Для батлов с призовым пулом: создаём запись и ждём оплаты
   const battle = await createBattle(db, initiator, prizePool);
 
-  // Отправляем сообщение с инструкцией по пополнению wallet
-  await ctx.reply(
-    `💡 @${initiator.username || initiator.first_name}, to play for ${prizePool} ⭐, both players must top up at least ${prizePool / 2} ⭐ to their wallet.`
-  );
+  const payKeyboard = {
+    inline_keyboard: [
+      [{ text: "💳 Top Up Wallet", callback_data: "wallet_topup" }],
+      [{ text: "💰 Pay using Wallet", callback_data: `pvp_pay_wallet_${battle.id}` }],
+    ]
+  };
 
-  // Здесь твоя логика wallet: инициировать создание батла в Firebase,
-  // затем игроки оплачивают через внутреннюю валюту и при подтверждении запускается startBattle
+  await ctx.reply(
+    `💡 @${initiator.username || initiator.first_name}, to play for ${prizePool} ⭐, both players must top up at least ${prizePool / 2} ⭐ to their wallet.`,
+    { reply_markup: payKeyboard }
+  );
 });
 
 // Ping route

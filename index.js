@@ -3,7 +3,7 @@ import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import initSlotModule from "./slot.js";
-import initPvpBattleModule from "./pvpBattle.js";
+import initPvpBattleModule from "./pvp/pvpBattle.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 

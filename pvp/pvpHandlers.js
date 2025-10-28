@@ -3,7 +3,7 @@ import { createBattle, getBattleById, updateBattle } from "./pvpFirebase.js";
 import { sendPaymentRequest } from "./pvpPayments.js";
 
 export default function initPvpHandlers({ bot, db }) {
-  // Команда для старта битвы
+  // Команда для старта батла
   bot.command("battle", async (ctx) => {
     const user = ctx.from;
     const keyboard = {
@@ -27,13 +27,13 @@ export default function initPvpHandlers({ bot, db }) {
     const prizePool = parseInt(ctx.match[1]);
     const user = ctx.from;
 
+    // Создаем батл в Firebase
     const battle = await createBattle(db, user, prizePool);
 
+    // Отправляем сообщение с кнопкой для принятия батла другим игроком
     const acceptKeyboard = {
       inline_keyboard: [
-        [
-          { text: "✅ Accept Battle", callback_data: `pvp_accept_${battle.id}` },
-        ],
+        [{ text: "✅ Accept Battle", callback_data: `pvp_accept_${battle.id}` }],
       ],
     };
 
@@ -41,30 +41,37 @@ export default function initPvpHandlers({ bot, db }) {
       `🎯 @${user.username || user.first_name} создал батл!\n\nПризовой фонд: ${prizePool} ⭐\n(по ${prizePool / 2} ⭐ с каждого)\n\nЖдём соперника...`,
       { reply_markup: acceptKeyboard }
     );
+
+    // Отправляем запрос на оплату организатору
+    await sendPaymentRequest(ctx, battle.id, "initiator", prizePool / 2);
   });
 
-  // Второй игрок принимает вызов
+  // Принятие вызова оппонентом
   bot.action(/^pvp_accept_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const battleId = ctx.match[1];
-    const user = ctx.from;
+    const opponent = ctx.from;
 
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ Этот батл уже не активен.");
-
-    if (battle.status !== "awaiting_accept")
+    if (battle.status !== "awaiting_accept" && battle.status !== "initiator_paid") {
       return ctx.reply("⚠️ Батл уже начат или завершён.");
+    }
 
+    // Обновляем оппонента
     await updateBattle(db, battleId, {
-      status: "awaiting_payment_opponent",
-      opponentId: user.id,
-      opponentUsername: user.username,
+      opponentId: opponent.id,
+      opponentUsername: opponent.username,
+      status: battle.status === "initiator_paid" ? "awaiting_payment_opponent" : "awaiting_accept",
     });
 
     await ctx.reply(
-      `💸 Для участия оплати ${battle.prizePool / 2} ⭐`,
+      `💸 @${opponent.username} принял вызов!\nТеперь необходимо оплатить участие ${battle.prizePool / 2} ⭐`
     );
 
-    await sendPaymentRequest(ctx, battleId, "opponent", battle.prizePool / 2);
+    if (battle.status === "initiator_paid") {
+      // Если организатор уже оплатил, отправляем оплату оппоненту
+      await sendPaymentRequest(ctx, battleId, "opponent", battle.prizePool / 2);
+    }
   });
 }

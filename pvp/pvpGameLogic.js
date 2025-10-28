@@ -8,19 +8,30 @@ export function initGameLogic({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ Battle not found.");
 
-    // ✅ Проверяем, можно ли вообще кидать кубик
+    // ✅ Проверяем, можно ли кидать кубик
     if (battle.status !== "in_progress") {
       return ctx.reply("⏳ Battle hasn’t started yet!");
     }
 
-    const roll = Math.floor(Math.random() * 6) + 1;
     const user = ctx.from;
 
+    // ✅ Проверяем порядок хода
+    if (battle.turn === "initiator" && user.id !== battle.initiatorId) {
+      return ctx.reply("⏳ Wait for your turn. Initiator goes first!");
+    }
+    if (battle.turn === "opponent" && user.id !== battle.opponentId) {
+      return ctx.reply("⏳ Wait for your turn. Opponent goes next!");
+    }
+
+    const roll = Math.floor(Math.random() * 6) + 1;
     let updateData = {};
+
     if (user.id === battle.initiatorId && !battle.initiatorRoll) {
       updateData.initiatorRoll = roll;
+      updateData.turn = "opponent"; // передаём ход оппоненту
     } else if (user.id === battle.opponentId && !battle.opponentRoll) {
       updateData.opponentRoll = roll;
+      updateData.turn = null; // оба сделали ход
     } else {
       return ctx.reply("⚠️ You’ve already rolled the dice!");
     }
@@ -58,11 +69,14 @@ export async function startBattle(bot, db, battleId) {
   const battle = await getBattleById(db, battleId);
   if (!battle) return;
 
-  // ✅ Разрешаем запуск только если обе оплаты прошли
-  if (battle.status !== "paid_by_both") {
+  // ✅ Разрешаем старт для батлов с призовым пулом или без
+  if (battle.prizePool > 0 && battle.status !== "paid_by_both") {
     console.log(`⚠️ Battle ${battleId} cannot start until both players have paid.`);
     return;
   }
+
+  // ✅ Обновляем статус и устанавливаем первый ход
+  await updateBattle(db, battleId, { status: "in_progress", turn: "initiator" });
 
   const keyboard = {
     inline_keyboard: [
@@ -70,17 +84,9 @@ export async function startBattle(bot, db, battleId) {
     ],
   };
 
-  await bot.telegram.sendMessage(
-    battle.initiatorId,
-    `🎮 The battle has begun against @${battle.opponentUsername}!`,
-    { reply_markup: keyboard }
-  );
+  const initiatorMsg = `🎮 The battle has begun against @${battle.opponentUsername || "Opponent"}! It's your turn first.`;
+  const opponentMsg = `🎮 The battle has begun against @${battle.initiatorUsername || "Initiator"}! Wait for your turn.`;
 
-  await bot.telegram.sendMessage(
-    battle.opponentId,
-    `🎮 The battle has begun against @${battle.initiatorUsername}!`,
-    { reply_markup: keyboard }
-  );
-
-  await updateBattle(db, battleId, { status: "in_progress" });
+  await bot.telegram.sendMessage(battle.initiatorId, initiatorMsg, { reply_markup: keyboard });
+  await bot.telegram.sendMessage(battle.opponentId, opponentMsg, { reply_markup: keyboard });
 }

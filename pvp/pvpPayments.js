@@ -14,18 +14,23 @@ export default function initPvpPayments({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
+    // Проверяем, что именно тот игрок оплатил
+    const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
+    if (ctx.from.id !== expectedId) {
+      return ctx.reply("⚠️ This invoice is not for you.");
+    }
+
     if (role === "initiator") {
       await updateBattle(db, battleId, { status: "initiator_paid" });
 
       const updated = await getBattleById(db, battleId);
       if (updated.opponentId) {
-        await sendPaymentRequest(ctx, battleId, "opponent", updated.prizePool / 2);
+        await sendPaymentRequest(ctx, battleId, "opponent", updated.prizePool / 2, updated.opponentId);
         await ctx.telegram.sendMessage(
           updated.opponentId,
           `💸 The organizer has paid! Now it's your turn to pay for your participation. (${updated.prizePool / 2} ⭐).`
         );
       }
-
     } else if (role === "opponent") {
       await updateBattle(db, battleId, { status: "opponent_paid" });
     }
@@ -42,7 +47,15 @@ export default function initPvpPayments({ bot, db }) {
   });
 }
 
-export async function sendPaymentRequest(ctx, battleId, role, amount) {
+/**
+ * Отправка платежа конкретному пользователю
+ */
+export async function sendPaymentRequest(ctx, battleId, role, amount, userId) {
+  // Проверяем, что это правильный пользователь
+  if (ctx.from.id !== userId) {
+    return ctx.reply("⚠️ You are not authorized to pay this invoice.");
+  }
+
   await ctx.replyWithInvoice({
     title: `PvP Battle Entry`,
     description: `Entry fee (${role})`,

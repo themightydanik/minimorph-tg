@@ -58,7 +58,8 @@ bot.start(async (ctx) => {
   // Если пришли через кнопку оплаты в приватный чат
   if (ctx.startPayload && ctx.startPayload.startsWith("pay_")) {
     const [, battleId, role] = ctx.startPayload.split("_");
-    await createInvoiceForUser(bot, ctx.from.id, battleId, role);
+    await createInvoiceForUser(bot, db, ctx.from.id, battleId, role);
+
     return; // прекращаем обычный старт
   }
 

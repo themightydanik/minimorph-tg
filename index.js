@@ -107,7 +107,7 @@ async function showBattlePrizePool(ctx) {
   const keyboard = {
     inline_keyboard: [
       [
-        { text: "💰 120 ⭐", callback_data: "pvp_prize_120" },
+        { text: "💰 2 ⭐", callback_data: "pvp_prize_2" },
         { text: "💰 250 ⭐", callback_data: "pvp_prize_250" },
       ],
       [{ text: "💎 Prize Pool: 500 ⭐", callback_data: "pvp_prize_500" }],

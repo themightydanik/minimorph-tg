@@ -8,24 +8,48 @@ export function initGameLogic({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ Battle not found.");
 
+    // ✅ Проверяем, можно ли вообще кидать кубик
+    if (battle.status !== "in_progress") {
+      return ctx.reply("⏳ Battle hasn’t started yet!");
+    }
+
     const roll = Math.floor(Math.random() * 6) + 1;
     const user = ctx.from;
 
-    if (user.id === battle.initiatorId) {
-      await updateBattle(db, battleId, { initiatorRoll: roll });
-    } else if (user.id === battle.opponentId) {
-      await updateBattle(db, battleId, { opponentRoll: roll });
+    let updateData = {};
+    if (user.id === battle.initiatorId && !battle.initiatorRoll) {
+      updateData.initiatorRoll = roll;
+    } else if (user.id === battle.opponentId && !battle.opponentRoll) {
+      updateData.opponentRoll = roll;
+    } else {
+      return ctx.reply("⚠️ You’ve already rolled the dice!");
     }
 
+    await updateBattle(db, battleId, updateData);
     await ctx.reply(`🎲 @${user.username} rolled the dice and got: ${roll}`);
 
+    // ✅ Проверяем, бросили ли оба игрока
     const updated = await getBattleById(db, battleId);
     if (updated.initiatorRoll && updated.opponentRoll) {
-      const winner =
-        updated.initiatorRoll > updated.opponentRoll
-          ? updated.initiatorUsername
-          : updated.opponentUsername;
-      await ctx.reply(`🏆 Winner: @${winner}`);
+      const initiator = updated.initiatorUsername;
+      const opponent = updated.opponentUsername;
+
+      let winner;
+      if (updated.initiatorRoll > updated.opponentRoll) {
+        winner = initiator;
+      } else if (updated.initiatorRoll < updated.opponentRoll) {
+        winner = opponent;
+      } else {
+        winner = null; // ничья
+      }
+
+      if (winner) {
+        await ctx.reply(`🏆 Winner: @${winner}`);
+        await updateBattle(db, battleId, { status: "finished", winner });
+      } else {
+        await ctx.reply("🤝 It’s a draw!");
+        await updateBattle(db, battleId, { status: "finished", winner: "draw" });
+      }
     }
   });
 }
@@ -33,6 +57,12 @@ export function initGameLogic({ bot, db }) {
 export async function startBattle(bot, db, battleId) {
   const battle = await getBattleById(db, battleId);
   if (!battle) return;
+
+  // ✅ Разрешаем запуск только если обе оплаты прошли
+  if (battle.status !== "paid_by_both") {
+    console.log(`⚠️ Battle ${battleId} cannot start until both players have paid.`);
+    return;
+  }
 
   const keyboard = {
     inline_keyboard: [
@@ -42,13 +72,13 @@ export async function startBattle(bot, db, battleId) {
 
   await bot.telegram.sendMessage(
     battle.initiatorId,
-    `🎮 The battle began against @${battle.opponentUsername}!`,
+    `🎮 The battle has begun against @${battle.opponentUsername}!`,
     { reply_markup: keyboard }
   );
 
   await bot.telegram.sendMessage(
     battle.opponentId,
-    `🎮 The battle began against @${battle.initiatorUsername}!`,
+    `🎮 The battle has begun against @${battle.initiatorUsername}!`,
     { reply_markup: keyboard }
   );
 

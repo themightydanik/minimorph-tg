@@ -111,11 +111,14 @@ bot.start(async (ctx) => {
 });
 
 // === Inline button to start PvP via command ===
-bot.action("battle_command", async (ctx) => {
+// === Inline button to start battle ===
+bot.action("start_battle", async (ctx) => {
   await ctx.answerCbQuery();
-  // Просто вызываем команду /battle модуля PvP
-  await bot.telegram.sendMessage(ctx.from.id, "/battle");
+
+  // вызываем прямо функцию из pvpHandlers
+  showBattlePrizePool(ctx);
 });
+
 
 // === Withdraw stars ===
 bot.action('withdraw_stars', async (ctx) => {

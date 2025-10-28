@@ -9,25 +9,28 @@ export default function initPvpPayments({ bot, db }) {
 
   bot.on("successful_payment", async (ctx) => {
     const payload = ctx.message.successful_payment.invoice_payload;
-    const [type, battleId, role] = payload.split("_"); // "pvp_<id>_opponent" / "pvp_<id>_initiator"
+    const [type, battleId, role] = payload.split("_"); // "pvp_<id>_initiator" или "pvp_<id>_opponent"
 
     const battle = await getBattleById(db, battleId);
     if (!battle) return;
 
-    if (role === "opponent") {
-      await updateBattle(db, battleId, { status: "awaiting_payment_initiator" });
-      await ctx.telegram.sendMessage(
-        battle.initiatorId,
-        `⚡️ @${ctx.from.username} has paid for participation!\nNow it's your turn to pay ${battle.prizePool / 2} ⭐`
-      );
-      await sendPaymentRequest(ctx, battleId, "initiator", battle.prizePool / 2);
-    } else if (role === "initiator") {
+    if (role === "initiator") {
+      // Организатор оплатил
+      await updateBattle(db, battleId, { status: "initiator_paid" });
+
+      if (battle.opponentId) {
+        // Если оппонент уже присоединился, отправляем оплату оппоненту
+        await sendPaymentRequest(ctx, battleId, "opponent", battle.prizePool / 2);
+      }
+    } else if (role === "opponent") {
+      // Оппонент оплатил
       await updateBattle(db, battleId, { status: "ready" });
       await startBattle(bot, db, battleId);
     }
   });
 }
 
+// Отправка запроса на оплату
 export async function sendPaymentRequest(ctx, battleId, role, amount) {
   await ctx.replyWithInvoice({
     title: `PvP Battle Entry`,

@@ -1,6 +1,6 @@
-// pvp/pvpGameLogic.js (IMPROVED VERSION)
+// pvp/pvpGameLogic.js (FIXED - type comparisons)
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
-import { doc, getDoc, updateDoc, runTransaction } from "firebase/firestore";
+import { doc, runTransaction } from "firebase/firestore";
 
 /**
  * Инициализация логики PvP батлов
@@ -25,15 +25,16 @@ export function initGameLogic({ bot, db }) {
     }
 
     const user = ctx.from;
+    const userIdStr = user.id.toString(); // 🔒 Преобразуем в строку для сравнения
 
-    // ✅ Проверяем порядок хода
-    if (battle.turn === "initiator" && user.id !== battle.initiatorId) {
+    // ✅ Проверяем порядок хода (сравниваем строки)
+    if (battle.turn === "initiator" && userIdStr !== battle.initiatorId.toString()) {
       return bot.telegram.sendMessage(
         chatId, 
         `⏳ Wait for your turn. @${battle.initiatorUsername} goes first!`
       );
     }
-    if (battle.turn === "opponent" && user.id !== battle.opponentId) {
+    if (battle.turn === "opponent" && userIdStr !== battle.opponentId?.toString()) {
       return bot.telegram.sendMessage(
         chatId, 
         `⏳ Wait for your turn. @${battle.opponentUsername} goes next!`
@@ -41,20 +42,20 @@ export function initGameLogic({ bot, db }) {
     }
 
     // 🔒 Проверяем, не сделал ли игрок уже ход
-    if (user.id === battle.initiatorId && battle.initiatorRoll) {
+    if (userIdStr === battle.initiatorId.toString() && battle.initiatorRoll) {
       return ctx.reply("⚠️ You've already rolled the dice!");
     }
-    if (user.id === battle.opponentId && battle.opponentRoll) {
+    if (userIdStr === battle.opponentId?.toString() && battle.opponentRoll) {
       return ctx.reply("⚠️ You've already rolled the dice!");
     }
 
     const roll = Math.floor(Math.random() * 6) + 1;
     let updateData = {};
 
-    if (user.id === battle.initiatorId && !battle.initiatorRoll) {
+    if (userIdStr === battle.initiatorId.toString() && !battle.initiatorRoll) {
       updateData.initiatorRoll = roll;
       updateData.turn = "opponent"; // передаём ход оппоненту
-    } else if (user.id === battle.opponentId && !battle.opponentRoll) {
+    } else if (userIdStr === battle.opponentId?.toString() && !battle.opponentRoll) {
       updateData.opponentRoll = roll;
       updateData.turn = null; // оба сделали ход
     }

@@ -120,11 +120,17 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const prizePool = parseInt(ctx.match[1]);
   const initiator = ctx.from;
 
+  // Создаём батл
   const battle = await createBattle(db, initiator, prizePool);
 
   if (prizePool === 0) {
-    // Батл без приза — ждём оппонента
-    await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "waiting_for_opponent" });
+    // Батл без приза — сохраняем chatId и ждём оппонента
+    await updateBattle(db, battle.id, { 
+      initiatorPaid: true, 
+      opponentPaid: true, 
+      status: "waiting_for_opponent",
+      chatId: ctx.chat.id  // <--- добавляем ID текущего чата
+    });
 
     const lobbyKeyboard = {
       inline_keyboard: [[{ text: "⚔️ Join Free Battle", callback_data: `accept_battle_${battle.id}` }]]
@@ -141,7 +147,10 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const lobbyKeyboard = {
     inline_keyboard: [[{ text: "⚔️ Accept Challenge", callback_data: `accept_battle_${battle.id}` }]]
   };
-  await ctx.reply(`🏟️ Battle lobby created with prize ${prizePool} ⭐. Waiting for opponent...`, { reply_markup: lobbyKeyboard });
+  await ctx.reply(
+    `🏟️ Battle lobby created with prize ${prizePool} ⭐. Waiting for opponent...`,
+    { reply_markup: lobbyKeyboard }
+  );
 });
 
 // === Accept battle ===

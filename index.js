@@ -120,8 +120,10 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const prizePool = parseInt(ctx.match[1]);
   const initiator = ctx.from;
 
+  // Создаём батл в лобби
   const battle = await createBattle(db, initiator, prizePool);
 
+  // Если призовой пул 0, сразу батл без оплаты
   if (prizePool === 0) {
     await updateBattle(db, battle.id, {
       initiatorPaid: true,
@@ -133,22 +135,25 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     return;
   }
 
-  // Проверяем баланс Wallet
+  // Отправляем приватное сообщение инициатору с оплатой
   const userRef = doc(db, "users", initiator.id.toString());
   const userSnap = await getDoc(userRef);
   const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
 
   if (wallet >= prizePool / 2) {
     await updateBattle(db, battle.id, { initiatorPaid: true });
-    const keyboard = { inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]] };
-    await ctx.reply(`💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`, { reply_markup: keyboard });
+    await bot.telegram.sendMessage(
+      initiator.id,
+      `💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`,
+      { reply_markup: { inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]] } }
+    );
   } else {
-    const keyboard = { inline_keyboard: [[{ text: "💳 Top Up Wallet", callback_data: "wallet_topup_from_battle" }]] };
-    await ctx.reply(`💡 Your Wallet balance is ${wallet} ⭐. Top up to participate.`, { reply_markup: keyboard });
+    // Если недостаточно, предлагаем приватно пополнить Wallet
+    await bot.showWalletTopupOptions({ chat: { id: initiator.id } });
   }
 });
 
-// === Top Up Wallet из батла ===
+// === Top Up Wallet из батла (приватно) ===
 bot.action("wallet_topup_from_battle", async (ctx) => {
   await ctx.answerCbQuery();
   await bot.showWalletTopupOptions(ctx);

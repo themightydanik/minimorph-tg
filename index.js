@@ -5,7 +5,7 @@ import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import { initPvpWalletAndPayments } from "./pvp/pvpWalletAndPayments.js"; // 🟢 объединённый модуль
+import { initPvpWalletPayments } from "./pvp/pvpWalletPayments.js"; // 🟢 объединённый модуль
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();

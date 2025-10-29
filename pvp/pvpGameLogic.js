@@ -1,6 +1,9 @@
 // pvp/pvpGameLogic.js
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 
+/**
+ * Инициализация логики PvP батлов
+ */
 export function initGameLogic({ bot, db }) {
   bot.action(/^pvp_roll_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
@@ -8,19 +11,22 @@ export function initGameLogic({ bot, db }) {
     const battle = await getBattleById(db, battleId);
     if (!battle) return ctx.reply("⚠️ Battle not found.");
 
+    const chatId = battle.chatId || ctx.chat?.id;
+    if (!chatId) return console.error("⚠️ No chatId for battle messages");
+
     // ✅ Проверяем, можно ли кидать кубик
     if (battle.status !== "in_progress") {
-      return ctx.reply("⏳ Battle hasn’t started yet!");
+      return bot.telegram.sendMessage(chatId, "⏳ Battle hasn’t started yet!");
     }
 
     const user = ctx.from;
 
     // ✅ Проверяем порядок хода
     if (battle.turn === "initiator" && user.id !== battle.initiatorId) {
-      return ctx.reply("⏳ Wait for your turn. Initiator goes first!");
+      return bot.telegram.sendMessage(chatId, "⏳ Wait for your turn. Initiator goes first!");
     }
     if (battle.turn === "opponent" && user.id !== battle.opponentId) {
-      return ctx.reply("⏳ Wait for your turn. Opponent goes next!");
+      return bot.telegram.sendMessage(chatId, "⏳ Wait for your turn. Opponent goes next!");
     }
 
     const roll = Math.floor(Math.random() * 6) + 1;
@@ -33,11 +39,11 @@ export function initGameLogic({ bot, db }) {
       updateData.opponentRoll = roll;
       updateData.turn = null; // оба сделали ход
     } else {
-      return ctx.reply("⚠️ You’ve already rolled the dice!");
+      return bot.telegram.sendMessage(chatId, "⚠️ You’ve already rolled the dice!");
     }
 
     await updateBattle(db, battleId, updateData);
-    await ctx.reply(`🎲 @${user.username} rolled the dice and got: ${roll}`);
+    await bot.telegram.sendMessage(chatId, `🎲 @${user.username} rolled the dice and got: ${roll}`);
 
     // ✅ Проверяем, бросили ли оба игрока
     const updated = await getBattleById(db, battleId);
@@ -55,19 +61,25 @@ export function initGameLogic({ bot, db }) {
       }
 
       if (winner) {
-        await ctx.reply(`🏆 Winner: @${winner}`);
+        await bot.telegram.sendMessage(chatId, `🏆 Winner: @${winner}`);
         await updateBattle(db, battleId, { status: "finished", winner });
       } else {
-        await ctx.reply("🤝 It’s a draw!");
+        await bot.telegram.sendMessage(chatId, "🤝 It’s a draw!");
         await updateBattle(db, battleId, { status: "finished", winner: "draw" });
       }
     }
   });
 }
 
-export async function startBattle(bot, db, battleId) {
+/**
+ * Старт батла
+ */
+export async function startBattle(bot, db, battleId, chatIdFromCtx) {
   const battle = await getBattleById(db, battleId);
   if (!battle) return;
+
+  const chatId = battle.chatId || chatIdFromCtx;
+  if (!chatId) return console.error("⚠️ No chatId to start the battle");
 
   // Для платного батла проверяем оплату
   if (battle.prizePool > 0 && battle.status !== "paid_by_both") {
@@ -75,7 +87,10 @@ export async function startBattle(bot, db, battleId) {
     return;
   }
 
-  // Для батлов без приза — уже paid_by_both, поэтому стартуем
+  // Сохраняем chatId, если ещё нет
+  if (!battle.chatId) await updateBattle(db, battleId, { chatId });
+
+  // Обновляем статус и устанавливаем первый ход
   await updateBattle(db, battleId, { status: "in_progress", turn: "initiator" });
 
   const keyboard = {
@@ -91,5 +106,5 @@ export async function startBattle(bot, db, battleId) {
 @${battle.initiatorUsername}, it's your turn first! 🎲
   `;
 
-  await bot.telegram.sendMessage(battle.chatId, message, { reply_markup: keyboard });
+  await bot.telegram.sendMessage(chatId, message, { reply_markup: keyboard });
 }

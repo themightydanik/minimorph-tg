@@ -4,7 +4,6 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 export function initPvpWalletLogic({ bot, db }) {
   const walletAmounts = [1, 125, 250]; // доступные пакеты Stars
 
-  // Кнопки для пополнения Wallet
   bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const amount = parseInt(ctx.match[1], 10);
@@ -14,14 +13,14 @@ export function initPvpWalletLogic({ bot, db }) {
     const title = `${amount} Stars for Wallet`;
     const description = `Top up your internal Wallet with ${amount} Stars.`;
     const startParameter = `wallet_topup_${Date.now()}`;
-    const prices = [{ label: `${amount} Stars`, amount }]; // для Stars — просто число
+    const prices = [{ label: `${amount} Stars`, amount }]; // Stars
 
     try {
       await ctx.replyWithInvoice({
         title,
         description,
         payload,
-        provider_token: "", // Stars payment
+        provider_token: "", // Stars
         currency: "XTR",
         prices,
         start_parameter: startParameter,
@@ -32,16 +31,14 @@ export function initPvpWalletLogic({ bot, db }) {
     }
   });
 
-  // Pre-checkout (обязательно подтверждаем)
   bot.on("pre_checkout_query", async (ctx) => {
     await ctx.answerPreCheckoutQuery(true);
   });
 
-  // После успешной оплаты Stars — зачисляем в Wallet
   bot.on("successful_payment", async (ctx) => {
     try {
       const payment = ctx.message.successful_payment;
-      const payload = payment.invoice_payload; // wallet_topup:<telegramId>:<amount>:timestamp
+      const payload = payment.invoice_payload;
       const parts = payload.split(":");
       if (parts[0] !== "wallet_topup") return;
 
@@ -63,4 +60,16 @@ export function initPvpWalletLogic({ bot, db }) {
       await ctx.reply("⚠️ Error updating Wallet. Contact admin.");
     }
   });
+}
+
+// Показать кнопки пополнения Wallet (вызывается из батла или команд)
+export async function showWalletTopupOptions(ctx) {
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: "💳 Add 1 Star", callback_data: "wallet_add_1" }],
+      [{ text: "💳 Add 125 Stars", callback_data: "wallet_add_125" }],
+      [{ text: "💳 Add 250 Stars", callback_data: "wallet_add_250" }]
+    ]
+  };
+  await ctx.reply("💡 Choose how many Stars to add to your Wallet:", { reply_markup: keyboard });
 }

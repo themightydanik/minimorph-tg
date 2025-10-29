@@ -1,34 +1,92 @@
-// pvp/pvpPayments.js
+// pvp/pvpWalletPayments.js
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 
-export default function initPvpPayments({ bot, db }) {
-  bot.db = db;
+/**
+ * 💳 Инициализация логики кошелька и платежей (Wallet + PvP)
+ */
+export function initPvpWalletPayments({ bot, db }) {
+  const walletAmounts = [1, 125, 250]; // пакеты Stars
 
-  // ✅ Telegram PreCheckout
+  // --- 🧾 Показать пользователю варианты пополнения ---
+  async function showWalletTopupOptions(ctx) {
+    const chatId = ctx.chat?.id || ctx.from?.id;
+    if (!chatId) return console.error("No chat id for wallet topup");
+
+    const keyboard = {
+      inline_keyboard: walletAmounts.map(amount => [
+        {
+          text: `💳 Add ${amount} Star${amount > 1 ? "s" : ""}`,
+          callback_data: `wallet_add_${amount}`,
+        },
+      ]),
+    };
+
+    try {
+      await bot.telegram.sendMessage(
+        chatId,
+        "💡 Choose how many Stars to add to your Wallet:",
+        { reply_markup: keyboard }
+      );
+    } catch (err) {
+      console.error("Error showing wallet topup options:", err);
+    }
+  }
+
+  bot.showWalletTopupOptions = showWalletTopupOptions;
+
+  // --- 💰 Обработка выбора пакета Stars ---
+  bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+
+    const amount = parseInt(ctx.match[1], 10);
+    const telegramId = ctx.from.id.toString();
+
+    const payload = `wallet_topup:${telegramId}:${amount}:${Date.now()}`;
+    const title = `${amount} Stars for Wallet`;
+    const description = `Top up your internal Wallet with ${amount} Stars.`;
+    const startParameter = `wallet_topup_${Date.now()}`;
+
+    const prices = [{ label: `${amount} Stars`, amount }];
+
+    try {
+      await ctx.replyWithInvoice({
+        title,
+        description,
+        payload,
+        provider_token: "", // ⭐ Stars → оставляем пустым
+        currency: "XTR",
+        prices,
+        start_parameter: startParameter,
+      });
+    } catch (err) {
+      console.error("Wallet invoice error:", err);
+      await ctx.reply("⚠️ Error creating invoice. Contact admin.");
+    }
+  });
+
+  // --- ✅ Разрешение на оплату Stars ---
   bot.on("pre_checkout_query", async (ctx) => {
     try {
       await ctx.answerPreCheckoutQuery(true);
     } catch (err) {
-      console.error("PreCheckout error:", err);
+      console.error("Pre-checkout error:", err);
     }
   });
 
-  // ✅ Универсальный обработчик успешной оплаты
+  // --- 💸 Обработка успешных оплат (Stars + PvP) ---
   bot.on("successful_payment", async (ctx) => {
     try {
       const payment = ctx.message.successful_payment;
       const payload = payment.invoice_payload;
 
       if (!payload) return;
-
       console.log("💰 Successful payment payload:", payload);
 
-      // --- 🟣 1️⃣ Пополнение Wallet ---
+      // --- 1️⃣ Пополнение Wallet ---
       if (payload.startsWith("wallet_topup:")) {
         const [, userId, amountStr] = payload.split(":");
         const amount = parseInt(amountStr, 10);
-
         const userRef = doc(db, "users", userId);
         const userSnap = await getDoc(userRef);
 
@@ -50,12 +108,12 @@ export default function initPvpPayments({ bot, db }) {
 
         await bot.telegram.sendMessage(
           userId,
-          `✅ Payment successful! ${amount} ⭐ added to your Wallet.\nCurrent balance: ${newWallet} ⭐`
+          `✅ Payment successful!\n💫 Added ${amount} ⭐ to your Wallet.\n💰 Current balance: ${newWallet} ⭐`
         );
-        return; // важно: выходим, чтобы не обрабатывало как PvP
+        return;
       }
 
-      // --- 🔵 2️⃣ PvP Battle оплата ---
+      // --- 2️⃣ PvP Battle оплата ---
       if (payload.startsWith("pvp_")) {
         const [type, battleId, role] = payload.split("_");
 
@@ -91,7 +149,7 @@ export default function initPvpPayments({ bot, db }) {
 }
 
 /**
- * Создание инвойса для пользователя
+ * 🧾 Создание инвойса для PvP
  */
 export async function createInvoiceForUser(bot, db, userId, battleId, role) {
   try {
@@ -106,6 +164,7 @@ export async function createInvoiceForUser(bot, db, userId, battleId, role) {
       payload: `pvp_${battleId}_${role}`,
       currency: "XTR",
       prices: [{ label: "Entry Fee", amount }],
+      provider_token: "", // ⭐ Stars
     });
   } catch (err) {
     console.error("❌ Invoice creation error:", err);

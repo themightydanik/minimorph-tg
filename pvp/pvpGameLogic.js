@@ -69,13 +69,13 @@ export async function startBattle(bot, db, battleId) {
   const battle = await getBattleById(db, battleId);
   if (!battle) return;
 
-  // ✅ Разрешаем старт даже для батлов без приза
+  // Для платного батла проверяем оплату
   if (battle.prizePool > 0 && battle.status !== "paid_by_both") {
     console.log(`⚠️ Battle ${battleId} cannot start until both players have paid.`);
     return;
   }
 
-  // ✅ Обновляем статус и устанавливаем первый ход
+  // Для батлов без приза — уже paid_by_both, поэтому стартуем
   await updateBattle(db, battleId, { status: "in_progress", turn: "initiator" });
 
   const keyboard = {
@@ -84,7 +84,6 @@ export async function startBattle(bot, db, battleId) {
     ],
   };
 
-  // ✅ Отправляем сообщение в общий чат батла
   const message = `
 🔥 The battle has begun!
 👤 @${battle.initiatorUsername} vs 👤 @${battle.opponentUsername}
@@ -92,7 +91,5 @@ export async function startBattle(bot, db, battleId) {
 @${battle.initiatorUsername}, it's your turn first! 🎲
   `;
 
-  // Отправляем сообщение в чат батла
   await bot.telegram.sendMessage(battle.chatId, message, { reply_markup: keyboard });
 }
-

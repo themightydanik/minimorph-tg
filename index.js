@@ -46,6 +46,11 @@ initPvpWalletLogic({
   }
 });
 
+// === PvP Payments Logic ===
+import initPvpPayments from "./pvp/pvpPayments.js";
+initPvpPayments({ bot, db });
+
+
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
   await ctx.reply("💬 For support, please contact @Deviola_programmer.");

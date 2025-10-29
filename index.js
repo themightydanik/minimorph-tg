@@ -35,7 +35,7 @@ const slotRouter = initSlotModule({
 app.use("/slot", slotRouter);
 
 // === PvP Wallet + Payments ===
-initPvpWalletAndPayments({ bot, db }); // 🟢 единый модуль
+initPvpWalletPayments({ bot, db }); // 🟢 единый модуль
 
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {

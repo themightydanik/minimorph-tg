@@ -42,7 +42,7 @@ export function initPvpWalletLogic({ bot, db }) {
         title,
         description,
         payload,
-        provider_token: "", // Stars payment
+        provider_token: "", // вставьте токен провайдера Stars
         currency: "XTR",
         prices,
         start_parameter: startParameter,

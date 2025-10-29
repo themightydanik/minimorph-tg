@@ -1,4 +1,4 @@
-// index.js (FULL IMPROVED VERSION)
+// index.js (FIXED VERSION - with unified payments & type fixes)
 import express from 'express';
 import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
@@ -9,6 +9,7 @@ import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js"
 import { initPvpWalletPayments } from "./pvp/pvpWalletPayments.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 import { initGameLogic } from "./pvp/pvpGameLogic.js";
+import { initUnifiedPayments } from "./paymentsHandler.js"; // 🟢 НОВЫЙ единый обработчик
 
 dotenv.config();
 
@@ -20,15 +21,25 @@ bot.db = db;
 // === Constants ===
 const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
+const SLOT_PRICE_STARS = parseInt(process.env.SLOT_PRICE_STARS || "20", 10);
+const SLOT_TICKETS_PER_PURCHASE = parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10);
 
-// === Slot Module ===
+// === 🔥 UNIFIED PAYMENTS (обрабатывает ВСЕ платежи) ===
+initUnifiedPayments({ 
+  bot, 
+  db, 
+  PRICE_STARS: SLOT_PRICE_STARS,
+  TICKETS_PER_PURCHASE: SLOT_TICKETS_PER_PURCHASE
+});
+
+// === Slot Module (БЕЗ обработчиков платежей) ===
 const slotRouter = initSlotModule({
   bot,
   db,
   ADMIN_ID: SLOT_ADMIN_ID,
   ADMIN_SECRET: SLOT_ADMIN_SECRET,
-  PRICE_STARS: parseInt(process.env.SLOT_PRICE_STARS || "20", 10),
-  TICKETS_PER_PURCHASE: parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10),
+  PRICE_STARS: SLOT_PRICE_STARS,
+  TICKETS_PER_PURCHASE: SLOT_TICKETS_PER_PURCHASE,
   JACKPOT_REWARD: parseInt(process.env.SLOT_JACKPOT_REWARD || "100", 10),
   PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "5", 10),
   NEWBIE_SPINS: parseInt(process.env.SLOT_NEWBIE_SPINS || "9", 10),
@@ -251,8 +262,8 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     return ctx.reply("⚠️ Someone already accepted this battle.");
   }
   
-  // 🔒 Проверяем, что игрок не играет сам с собой
-  if (battle.initiatorId === ctx.from.id) {
+  // 🔒 Проверяем, что игрок не играет сам с собой (сравниваем как строки)
+  if (battle.initiatorId.toString() === ctx.from.id.toString()) {
     return ctx.reply("⚠️ You cannot accept your own battle!");
   }
 
@@ -331,8 +342,11 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   }
 
   const needed = battle.prizePool / 2;
-  const isInitiator = ctx.from.id === battle.initiatorId;
-  const isOpponent = ctx.from.id === battle.opponentId;
+  
+  // 🔒 Сравниваем ID как строки
+  const userIdStr = ctx.from.id.toString();
+  const isInitiator = userIdStr === battle.initiatorId.toString();
+  const isOpponent = userIdStr === battle.opponentId?.toString();
 
   if (!isInitiator && !isOpponent) {
     return ctx.reply("⚠️ You are not part of this battle.");

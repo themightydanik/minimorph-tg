@@ -122,22 +122,22 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
 
   const battle = await createBattle(db, initiator, prizePool);
 
-if (prizePool === 0) {
-  // Батл без приза — не платёж, но ждём оппонента
-  await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "waiting_for_opponent" });
+  if (prizePool === 0) {
+    // Батл без приза — ждём оппонента
+    await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "waiting_for_opponent" });
 
-  const lobbyKeyboard = {
-    inline_keyboard: [[{ text: "⚔️ Join Free Battle", callback_data: `accept_battle_${battle.id}` }]]
-  };
+    const lobbyKeyboard = {
+      inline_keyboard: [[{ text: "⚔️ Join Free Battle", callback_data: `accept_battle_${battle.id}` }]]
+    };
 
-  await ctx.reply(
-    `🎮 @${initiator.username || initiator.first_name}, your free battle is ready! Waiting for an opponent...`,
-    { reply_markup: lobbyKeyboard }
-  );
-  return;
-}
+    await ctx.reply(
+      `🎮 @${initiator.username || initiator.first_name}, your free battle is ready! Waiting for an opponent...`,
+      { reply_markup: lobbyKeyboard }
+    );
+    return;
+  }
 
-
+  // Батл с призом — ждём оплаты
   const lobbyKeyboard = {
     inline_keyboard: [[{ text: "⚔️ Accept Challenge", callback_data: `accept_battle_${battle.id}` }]]
   };
@@ -154,6 +154,14 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
 
   await updateBattle(db, battleId, { opponentId: ctx.from.id, opponentUsername: ctx.from.username });
 
+  // Если батл без приза — сразу стартуем
+  if (battle.prizePool === 0) {
+    await updateBattle(db, battleId, { status: "paid_by_both" });
+    await startBattle(bot, db, battleId);
+    return;
+  }
+
+  // Батл с призом — проверяем оплату
   const needed = battle.prizePool / 2;
   const initiatorRef = doc(db, "users", battle.initiatorId.toString());
   const initiatorSnap = await getDoc(initiatorRef);

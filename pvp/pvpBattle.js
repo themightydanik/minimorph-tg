@@ -8,7 +8,7 @@ export default function initPvpModule({ bot, db }) {
   const context = { bot, db };
 
   // Убираем initPvpHandlers — его код теперь в index.js
-  initPvpPayments(context);
+  initPvpWalletPayments(context);
   initGameLogic(context);
 
   console.log("✅ PvP Battle module ready.");

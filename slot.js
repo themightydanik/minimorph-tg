@@ -1,10 +1,5 @@
-// slot.js (v2) — Slot Machine with Telegram Stars payments
-// Поддержка: - buyticket (Telegram Stars invoicing), - handle emoji 🎰 spins (dice.value),
-// - auto payout of Stars on win via payments.sendStarsForm (low-level call),
-// - admin commands: /grantpass, /freespin, admin HTTP endpoints.
-//
-// Зависимости: firebase (already in project), telegraf (already in project).
-// Импортируй и инициализируй из index.js: see instructions below.
+// slot.js (v3) — БЕЗ обработчиков платежей (они перенесены в paymentsHandler.js)
+// Только игровая логика + admin команды
 
 import express from "express";
 import {
@@ -16,7 +11,6 @@ import {
   collection,
   query,
   where,
-  increment,
 } from "firebase/firestore";
 
 function initSlotModule({
@@ -87,36 +81,18 @@ function initSlotModule({
   // /buyticket - отправим invoice для оплаты Stars
   bot.command("buyticket", async (ctx) => {
     try {
-      const chatId = ctx.chat.id;
       const telegramId = ctx.from.id.toString();
-      // unique payload
       const payload = `buy_ticket:${telegramId}:${Date.now()}`;
 
-      // prices array: for Bot API we pass amounts in smallest currency units.
-      // For Telegram Stars payments: per docs, provider_token should be omitted (pass empty string).
-      // Use currency 'XTR' for Stars payments when using bot API methods that expect currency.
-      // Many examples show passing empty provider token for Stars.
-      const prices = [{ label: `${TICKETS_PER_PURCHASE} slot tickets`, amount: PRICE_STARS }];
-
-      // Using bot.telegram.sendInvoice directly (provider token empty string for Stars).
-      // Telegraf wrapper: bot.telegram.sendInvoice(chatId, title, description, payload, providerToken, startParameter, currency, prices)
-      const title = `Buy ${TICKETS_PER_PURCHASE} slot ticket(s)`;
-      const description = `${TICKETS_PER_PURCHASE} spins for the slot machine — cost ${PRICE_STARS} ⭐`;
-      const startParameter = `buy_slot_${Date.now()}`;
-
-      // Note: some Telegram/lib versions want prices amounts as integers in "cents"
-      // but for Stars it's custom — these examples work in practice in many bots.
-await ctx.replyWithInvoice({
-  title: `Buy ${TICKETS_PER_PURCHASE} slot ticket(s)`,
-  description: `${TICKETS_PER_PURCHASE} spins for the slot machine — cost ${PRICE_STARS} ⭐`,
-  payload: `buy_ticket:${telegramId}:${Date.now()}`,
-  provider_token: "", // Stars
-  currency: "XTR",
-  prices: [{ label: `${TICKETS_PER_PURCHASE} slot tickets`, amount: PRICE_STARS }],
-  start_parameter: "buy_slot"
-});
-
-
+      await ctx.replyWithInvoice({
+        title: `Buy ${TICKETS_PER_PURCHASE} slot ticket(s)`,
+        description: `${TICKETS_PER_PURCHASE} spins for the slot machine — cost ${PRICE_STARS} ⭐`,
+        payload,
+        provider_token: "", // Stars
+        currency: "XTR",
+        prices: [{ label: `${TICKETS_PER_PURCHASE} slot tickets`, amount: PRICE_STARS }],
+        start_parameter: "buy_slot"
+      });
     } catch (err) {
       console.error("buyticket error:", err);
       return ctx.reply("Error creating invoice. Contact the admin.");
@@ -155,145 +131,93 @@ await ctx.replyWithInvoice({
   bot.command("freespin", async (ctx) => {
     const from = ctx.from.id.toString();
     if (from !== ADMIN_ID) return ctx.reply("Only admin can use this command.");
-    // create a simulated roll with random 1..64
     const val = Math.floor(Math.random() * 64) + 1;
     let outcome = "MISS";
     let reward = 0;
 
     if (val === 64) {
       outcome = "JACKPOT";
-      reward = JACKPOT_REWARD; // 💎 3 одинаковых
+      reward = JACKPOT_REWARD;
     } else if (val >= 33 && val <= 63) {
       outcome = "PAIR";
-      reward = PAIR_REWARD; // ⭐ 2 одинаковых
+      reward = PAIR_REWARD;
     } else {
-      outcome = "MISS"; // ❌
+      outcome = "MISS";
     }
     return ctx.reply(`🎰 Demo spin\nValue: ${val}\nOutcome: ${outcome}\nReward (simulated): ${reward} ⭐\n(This is a demo, no real payments will be made.)`);
   });
 
-  // --- PAYMENT HANDLERS (pre_checkout_query & successful_payment) ---
-  // Note: Telegraf handles pre_checkout_query as update type 'pre_checkout_query'
-  bot.on("pre_checkout_query", async (ctx) => {
+  // --- Handle slot dice 🎰 only ---
+  bot.on("dice", async (ctx) => {
     try {
-      // Always answer OK. You can validate payload here.
-      await ctx.answerPreCheckoutQuery(true);
-    } catch (err) {
-      console.error("pre_checkout_query error:", err);
-    }
-  });
+      const msg = ctx.message;
+      if (msg.dice.emoji !== "🎰") return;
 
-  // successful_payment comes inside message.successful_payment
-  
-// Тут вставляем вырезанный bot on message
-// --- Handle successful payments ---
-bot.on("successful_payment", async (ctx) => {
-  try {
-    const msg = ctx.message;
-    const payload = msg.successful_payment.invoice_payload || "";
-    const chatId = msg.chat.id;
-    const payerId = msg.from.id.toString();
+      const telegramId = msg.from.id.toString();
+      const user = await getUserById(telegramId);
+      if (!user) return ctx.reply("❗ You are not registered. Run /start.");
 
-    if (payload.startsWith("buy_ticket:")) {
-      const targetId = payerId;
-      const user = await getUserById(targetId);
-      if (!user) {
-        await setDoc(doc(db, "users", targetId), {
-          username: msg.from.username || `User-${targetId}`,
-          slotTickets: TICKETS_PER_PURCHASE,
-        });
-      } else {
-        await ensureSlotFields(user.ref, user.data);
-        await updateDoc(user.ref, {
-          slotTickets: (user.data.slotTickets || 0) + TICKETS_PER_PURCHASE,
-          slotSpentStars: (user.data.slotSpentStars || 0) + PRICE_STARS,
-        });
+      const data = await ensureSlotFields(user.ref, user.data);
+
+      if ((data.slotTickets || 0) <= 0) {
+        return ctx.reply("You don't have any tickets. Buy /buyticket or ask admin for some.");
       }
 
-      await bot.telegram.sendMessage(
-        chatId,
-        `✅ Purchase confirmed. You have been issued ${TICKETS_PER_PURCHASE} ticket(s).`
-      );
+      const val = msg.dice.value;
+      const spinsTotal = data.slotSpinsTotal || 0;
+      const isNewbie = spinsTotal < NEWBIE_SPINS;
+      const basePairCount = 15;
+      const pairCount = Math.min(63, Math.max(1, Math.floor(basePairCount * (isNewbie ? NEWBIE_MULTIPLIER : 1))));
+      const pairThreshold = 64 - pairCount;
+
+      let outcome = "MISS";
+      let reward = 0;
+      if (val === 64) {
+        outcome = "JACKPOT";
+        reward = JACKPOT_REWARD;
+      } else if (val > pairThreshold) {
+        outcome = "PAIR";
+        reward = PAIR_REWARD;
+      }
+
+      await updateDoc(user.ref, {
+        slotTickets: (data.slotTickets || 0) - 1,
+        slotSpinsTotal: (data.slotSpinsTotal || 0) + 1,
+        slotWins: (data.slotWins || 0) + (reward > 0 ? 1 : 0),
+        slotEarnedStars: (data.slotEarnedStars || 0) + reward,
+      });
+
+      let replyText = `🎰 Result: ${outcome}\n`;
+      if (reward > 0) {
+        if (outcome === "JACKPOT") {
+          replyText = `🎰 Result: JACKPOT!!! 🍒 🍒 🍒\n💎 JACKPOT!!! 💎\nUnbelievable! You've unlocked the top reward — ${reward} ⭐!\n🚀 The stars align in your favor!`;
+        } else {
+          replyText = `🎰 Result: ${outcome}\n💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
+        }
+
+        await ctx.reply(replyText);
+
+        try {
+          await bot.telegram.sendMessage(
+            ADMIN_ID,
+            `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐ (${outcome})\nAdded to pending payout.`
+          );
+        } catch (notifyErr) {
+          console.error("Failed to notify admin:", notifyErr);
+        }
+      } else {
+        replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
+        await ctx.reply(replyText);
+      }
+
+    } catch (err) {
+      console.error("Error in dice handler:", err);
     }
-  } catch (err) {
-    console.error("Error in successful_payment handler:", err);
-  }
-});
-
-// --- Handle slot dice 🎰 only ---
-bot.on("dice", async (ctx) => {
-  try {
-    const msg = ctx.message;
-    if (msg.dice.emoji !== "🎰") return;
-
-    const telegramId = msg.from.id.toString();
-    const user = await getUserById(telegramId);
-    if (!user) return ctx.reply("❗ You are not registered. Run /start.");
-
-    const data = await ensureSlotFields(user.ref, user.data);
-
-    if ((data.slotTickets || 0) <= 0) {
-      return ctx.reply("You don't have any tickets. Buy /buyticket or ask admin for some.");
-    }
-
-    const val = msg.dice.value;
-    const spinsTotal = data.slotSpinsTotal || 0;
-    const isNewbie = spinsTotal < NEWBIE_SPINS;
-    const basePairCount = 15;
-    const pairCount = Math.min(63, Math.max(1, Math.floor(basePairCount * (isNewbie ? NEWBIE_MULTIPLIER : 1))));
-    const pairThreshold = 64 - pairCount;
-
-    let outcome = "MISS";
-    let reward = 0;
-    if (val === 64) {
-      outcome = "JACKPOT";
-      reward = JACKPOT_REWARD;
-    } else if (val > pairThreshold) {
-      outcome = "PAIR";
-      reward = PAIR_REWARD;
-    }
-
-    await updateDoc(user.ref, {
-      slotTickets: (data.slotTickets || 0) - 1,
-      slotSpinsTotal: (data.slotSpinsTotal || 0) + 1,
-      slotWins: (data.slotWins || 0) + (reward > 0 ? 1 : 0),
-      slotEarnedStars: (data.slotEarnedStars || 0) + reward,
-    });
-
-    let replyText = `🎰 Result: ${outcome}\n`;
-if (reward > 0) {
-  if (outcome === "JACKPOT") {
-    replyText = `🎰 Result: JACKPOT!!! 🍒 🍒 🍒\n💎 JACKPOT!!! 💎\nUnbelievable! You’ve unlocked the top reward — ${reward} ⭐!\n🚀 The stars align in your favor!`;
-  } else {
-    replyText = `🎰 Result: ${outcome}\n💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
-  }
-
-  await ctx.reply(replyText);
-
-  try {
-    await bot.telegram.sendMessage(
-      ADMIN_ID,
-      `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐ (${outcome})\nAdded to pending payout.`
-    );
-  } catch (notifyErr) {
-    console.error("Failed to notify admin:", notifyErr);
-  }
-} else {
-  replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
-  await ctx.reply(replyText);
-}
-
-  } catch (err) {
-    console.error("Error in dice handler:", err);
-  }
-});
-
-
+  });
 
   // --- ADMIN EXPRESS ROUTES ---
 
   // Grant tickets via HTTP POST
-  // Body: { username?: "user", telegramId?: "123", amount: 5 }
   router.post("/admin/grant", async (req, res) => {
     try {
       const secret = req.headers["x-admin-secret"];
@@ -322,7 +246,6 @@ if (reward > 0) {
   });
 
   // Admin endpoint to perform payout via Telegram API (manual fallback)
-  // Body: { telegramId: "123", amount: 50 }
   router.post("/admin/payout-stars", async (req, res) => {
     try {
       const secret = req.headers["x-admin-secret"];
@@ -331,13 +254,11 @@ if (reward > 0) {
       const amt = parseInt(amount, 10) || 0;
       if (!telegramId || !amt || amt <= 0) return res.status(400).send("Invalid data");
 
-      // Attempt low-level API call
       try {
         await bot.telegram.callApi("payments.sendStarsForm", {
           user_id: parseInt(telegramId, 10),
           amount: amt,
         });
-        // Update DB to reflect paid
         const user = await getUserById(telegramId);
         if (user) {
           await updateDoc(user.ref, {
@@ -359,4 +280,3 @@ if (reward > 0) {
 }
 
 export default initSlotModule;
-

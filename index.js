@@ -123,40 +123,44 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   // Создаём батл в лобби
   const battle = await createBattle(db, initiator, prizePool);
 
-  // Если призовой пул 0, сразу батл без оплаты
   if (prizePool === 0) {
-    await updateBattle(db, battle.id, {
-      initiatorPaid: true,
-      opponentPaid: true,
-      status: "paid_by_both"
-    });
+    await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "paid_by_both" });
     await ctx.reply(`🎮 @${initiator.username || initiator.first_name}, your battle without prize is ready!`);
     await startBattle(bot, db, battle.id);
     return;
   }
 
-  // Отправляем приватное сообщение инициатору с оплатой
-  const userRef = doc(db, "users", initiator.id.toString());
-  const userSnap = await getDoc(userRef);
-  const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
-
-  if (wallet >= prizePool / 2) {
-    await updateBattle(db, battle.id, { initiatorPaid: true });
-    await bot.telegram.sendMessage(
-      initiator.id,
-      `💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`,
-      { reply_markup: { inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]] } }
-    );
-  } else {
-    // Если недостаточно, предлагаем приватно пополнить Wallet
-    await bot.showWalletTopupOptions({ chat: { id: initiator.id } });
-  }
+  // Показываем лобби с кнопкой для оппонента
+  const lobbyKeyboard = {
+    inline_keyboard: [[{ text: "⚔️ Accept Challenge", callback_data: `accept_battle_${battle.id}` }]]
+  };
+  await ctx.reply(`🏟️ Battle lobby created with prize ${prizePool} ⭐. Waiting for opponent...`, { reply_markup: lobbyKeyboard });
 });
 
-// === Top Up Wallet из батла (приватно) ===
-bot.action("wallet_topup_from_battle", async (ctx) => {
+// === Accept battle (оппонент) ===
+bot.action(/^accept_battle_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  await bot.showWalletTopupOptions(ctx);
+  const battleId = ctx.match[1];
+  const battle = await getBattleById(db, battleId);
+  if (!battle) return ctx.reply("⚠️ Battle not found.");
+  if (battle.opponentId) return ctx.reply("⚠️ Someone already accepted this battle.");
+
+  // Назначаем оппонента
+  await updateBattle(db, battleId, { opponentId: ctx.from.id, opponentUsername: ctx.from.username });
+
+  const needed = battle.prizePool / 2;
+
+  // Показываем инициатору кнопку оплаты прямо в батле
+  const payKeyboard = { inline_keyboard: [[
+    { text: "💳 Pay using Wallet / Top Up", callback_data: `pay_wallet_${battleId}` }
+  ]] };
+
+  await bot.telegram.sendMessage(battle.initiatorId,
+    `🎮 Opponent @${ctx.from.username} joined! Pay your share to start the battle (${needed} ⭐):`,
+    { reply_markup: payKeyboard }
+  );
+
+  await ctx.reply(`🎮 You joined the battle as opponent! Waiting for initiator to pay...`);
 });
 
 // === Pay using Wallet ===
@@ -169,9 +173,13 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   const userRef = doc(db, "users", ctx.from.id.toString());
   const userSnap = await getDoc(userRef);
   const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
-
   const needed = battle.prizePool / 2;
-  if (wallet < needed) return ctx.reply(`⚠️ Not enough Wallet balance. Need ${needed} ⭐.`);
+
+  if (wallet < needed) {
+    // Предлагаем приватно топап
+    await bot.showWalletTopupOptions({ chat: { id: ctx.from.id } });
+    return;
+  }
 
   await updateDoc(userRef, { wallet: wallet - needed });
 
@@ -180,9 +188,28 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   if (ctx.from.id === battle.opponentId) updateData.opponentPaid = true;
   await updateBattle(db, battleId, updateData);
 
-  await ctx.reply(`✅ ${needed} ⭐ deducted from your Wallet. Ready to battle!`);
+  await ctx.reply(`✅ ${needed} ⭐ deducted from your Wallet. Current balance: ${wallet - needed} ⭐`);
 
   const updatedBattle = await getBattleById(db, battleId);
+
+  // Если инициатор оплатил и оппонент есть, запускаем оплату оппонента
+  if (updatedBattle.initiatorPaid && !updatedBattle.opponentPaid && ctx.from.id === updatedBattle.initiatorId) {
+    const opponentId = updatedBattle.opponentId;
+    const opponentRef = doc(db, "users", opponentId.toString());
+    const opponentSnap = await getDoc(opponentRef);
+    const opponentWallet = (opponentSnap.exists() && opponentSnap.data().wallet) || 0;
+
+    const opponentKeyboard = { inline_keyboard: [[
+      { text: "💳 Pay using Wallet / Top Up", callback_data: `pay_wallet_${battleId}` }
+    ]] };
+
+    await bot.telegram.sendMessage(opponentId,
+      `🎮 It's your turn to pay for the battle (${needed} ⭐):`,
+      { reply_markup: opponentKeyboard }
+    );
+  }
+
+  // Если оба оплатили, стартуем батл
   if (updatedBattle.initiatorPaid && updatedBattle.opponentPaid) {
     await updateBattle(db, battleId, { status: "paid_by_both" });
     await startBattle(bot, db, battleId);

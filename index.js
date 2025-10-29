@@ -166,7 +166,7 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
   // Если батл без приза — сразу стартуем
   if (battle.prizePool === 0) {
     await updateBattle(db, battleId, { status: "paid_by_both" });
-    await startBattle(bot, db, battleId);
+    await startBattle(bot, db, battleId, ctx.chat.id);
     return;
   }
 

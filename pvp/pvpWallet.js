@@ -32,7 +32,7 @@ export function initPvpWalletLogic({ bot, db }) {
     }
   }
 
-  // Сохраняем функцию на объект бота, чтобы можно было вызывать из index.js
+  // 💡 Сохраняем функцию на объект бота, чтобы можно было вызывать из index.js
   bot.showWalletTopupOptions = showWalletTopupOptions;
 
   /**
@@ -43,12 +43,14 @@ export function initPvpWalletLogic({ bot, db }) {
 
     const amount = parseInt(ctx.match[1], 10);
     const telegramId = ctx.from.id.toString();
+
     const payload = `wallet_topup:${telegramId}:${amount}:${Date.now()}`;
     const title = `${amount} Stars for Wallet`;
     const description = `Top up your internal Wallet with ${amount} Stars.`;
     const startParameter = `wallet_topup_${Date.now()}`;
 
-    const prices = [{ label: `${amount} Stars`, amount }]; // Telegram Stars — валюта XTR
+    // Telegram Stars — валюта XTR
+    const prices = [{ label: `${amount} Stars`, amount }];
 
     try {
       await ctx.replyWithInvoice({
@@ -68,6 +70,7 @@ export function initPvpWalletLogic({ bot, db }) {
 
   /**
    * ✅ Подтверждение оплаты Stars (pre-checkout)
+   * Обязательно нужно, иначе Telegram не разрешит оплату.
    */
   bot.on("pre_checkout_query", async (ctx) => {
     try {
@@ -77,48 +80,5 @@ export function initPvpWalletLogic({ bot, db }) {
     }
   });
 
-  /**
-   * 💰 После успешной оплаты Stars — зачисляем сумму во внутренний Wallet пользователя (в Firestore)
-   */
-  bot.on("successful_payment", async (ctx) => {
-    try {
-      const payment = ctx.message.successful_payment;
-      const payload = payment.invoice_payload; // wallet_topup:<telegramId>:<amount>:timestamp
-      if (!payload?.startsWith("wallet_topup:")) return;
-
-      const [, userId, amountStr] = payload.split(":");
-      const amount = parseInt(amountStr, 10);
-
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-
-      let newWallet;
-      if (!userSnap.exists()) {
-        // Пользователь впервые — создаём документ
-        await setDoc(userRef, {
-          username: ctx.from.username || `User-${userId}`,
-          wallet: amount,
-          createdAt: Date.now(),
-        });
-        newWallet = amount;
-        console.log(`🆕 Wallet created for ${userId}: ${newWallet} ⭐`);
-      } else {
-        const currentWallet = userSnap.data().wallet || 0;
-        newWallet = currentWallet + amount;
-        await updateDoc(userRef, { wallet: newWallet });
-        console.log(`✅ Wallet updated for ${userId}: +${amount} ⭐, total = ${newWallet} ⭐`);
-      }
-
-      await bot.telegram.sendMessage(
-        userId,
-        `✅ Payment successful! ${amount} ⭐ added to your Wallet.\nCurrent balance: ${newWallet} ⭐`
-      );
-
-    } catch (err) {
-      console.error("Wallet update error:", err);
-      try {
-        await ctx.reply("⚠️ Error updating Wallet. Contact admin.");
-      } catch {}
-    }
-  });
+  // 💡 Обработка успешной оплаты теперь централизована в pvpPayments.js
 }

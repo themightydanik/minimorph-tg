@@ -5,7 +5,7 @@ import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import { initPvpWalletLogic, showWalletTopupOptions } from "./pvp/pvpWallet.js";
+import { initPvpWalletLogic } from "./pvp/pvpWallet.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
@@ -133,28 +133,25 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     return;
   }
 
-  const userRef = doc(db, initiator.id.toString());
+  // Проверяем баланс Wallet
+  const userRef = doc(db, "users", initiator.id.toString());
   const userSnap = await getDoc(userRef);
   const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
 
   if (wallet >= prizePool / 2) {
     await updateBattle(db, battle.id, { initiatorPaid: true });
-    const keyboard = {
-      inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]]
-    };
+    const keyboard = { inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]] };
     await ctx.reply(`💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`, { reply_markup: keyboard });
   } else {
-    const topupKeyboard = {
-      inline_keyboard: [[{ text: "💳 Top Up Wallet", callback_data: "wallet_topup_from_battle" }]]
-    };
-    await ctx.reply(`💡 Your Wallet balance is ${wallet} ⭐. Top up to participate.`, { reply_markup: topupKeyboard });
+    const keyboard = { inline_keyboard: [[{ text: "💳 Top Up Wallet", callback_data: "wallet_topup_from_battle" }]] };
+    await ctx.reply(`💡 Your Wallet balance is ${wallet} ⭐. Top up to participate.`, { reply_markup: keyboard });
   }
 });
 
-// === Activate Wallet topup options from battle ===
+// === Top Up Wallet из батла ===
 bot.action("wallet_topup_from_battle", async (ctx) => {
   await ctx.answerCbQuery();
-  await showWalletTopupOptions(ctx);
+  await bot.showWalletTopupOptions(ctx);
 });
 
 // === Pay using Wallet ===
@@ -164,7 +161,7 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   const battle = await getBattleById(db, battleId);
   if (!battle) return ctx.reply("⚠️ Battle not found.");
 
-  const userRef = doc(db, ctx.from.id.toString());
+  const userRef = doc(db, "users", ctx.from.id.toString());
   const userSnap = await getDoc(userRef);
   const wallet = (userSnap.exists() && userSnap.data().wallet) || 0;
 

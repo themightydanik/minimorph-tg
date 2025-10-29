@@ -1,5 +1,5 @@
-// pvp/pvpWalletPayments.js
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+// pvp/pvpWalletPayments.js (IMPROVED VERSION)
+import { doc, getDoc, setDoc, updateDoc, runTransaction, collection, addDoc } from "firebase/firestore";
 import { updateBattle, getBattleById } from "./pvpFirebase.js";
 
 /**
@@ -42,10 +42,12 @@ export function initPvpWalletPayments({ bot, db }) {
     const amount = parseInt(ctx.match[1], 10);
     const telegramId = ctx.from.id.toString();
 
-    const payload = `wallet_topup:${telegramId}:${amount}:${Date.now()}`;
+    // 🔒 Уникальный payload с timestamp для предотвращения дублей
+    const timestamp = Date.now();
+    const payload = `wallet_topup:${telegramId}:${amount}:${timestamp}`;
     const title = `${amount} Stars for Wallet`;
     const description = `Top up your internal Wallet with ${amount} Stars.`;
-    const startParameter = `wallet_topup_${Date.now()}`;
+    const startParameter = `wallet_topup_${timestamp}`;
 
     const prices = [{ label: `${amount} Stars`, amount }];
 
@@ -85,26 +87,58 @@ export function initPvpWalletPayments({ bot, db }) {
 
       // --- 1️⃣ Пополнение Wallet ---
       if (payload.startsWith("wallet_topup:")) {
-        const [, userId, amountStr] = payload.split(":");
+        const [, userId, amountStr, timestamp] = payload.split(":");
         const amount = parseInt(amountStr, 10);
-        const userRef = doc(db, "users", userId);
-        const userSnap = await getDoc(userRef);
-
-        let newWallet;
-        if (!userSnap.exists()) {
-          await setDoc(userRef, {
-            username: ctx.from.username || `User-${userId}`,
-            wallet: amount,
-            createdAt: Date.now(),
-          });
-          newWallet = amount;
-          console.log(`🆕 Wallet created for ${userId}: ${newWallet} ⭐`);
-        } else {
-          const currentWallet = userSnap.data().wallet || 0;
-          newWallet = currentWallet + amount;
-          await updateDoc(userRef, { wallet: newWallet });
-          console.log(`✅ Wallet updated for ${userId}: +${amount} ⭐, total = ${newWallet}`);
+        
+        // 🔒 Защита от дублирования: проверяем уникальность транзакции
+        const transactionId = `topup_${userId}_${timestamp}`;
+        const transactionRef = doc(db, "transactions", transactionId);
+        const transactionSnap = await getDoc(transactionRef);
+        
+        if (transactionSnap.exists()) {
+          console.warn(`⚠️ Duplicate transaction detected: ${transactionId}`);
+          return ctx.reply("⚠️ This payment was already processed.");
         }
+
+        const userRef = doc(db, "users", userId);
+
+        // 🔒 Используем транзакцию для атомарного обновления
+        const newWallet = await runTransaction(db, async (transaction) => {
+          const userSnap = await transaction.get(userRef);
+          
+          let currentWallet = 0;
+          if (!userSnap.exists()) {
+            // Создаём нового пользователя
+            transaction.set(userRef, {
+              username: ctx.from.username || `User-${userId}`,
+              wallet: amount,
+              createdAt: Date.now(),
+            });
+            currentWallet = amount;
+          } else {
+            currentWallet = userSnap.data().wallet || 0;
+            transaction.update(userRef, { 
+              wallet: currentWallet + amount,
+              lastWalletUpdate: Date.now()
+            });
+            currentWallet += amount;
+          }
+
+          // 📝 Логируем транзакцию
+          transaction.set(transactionRef, {
+            type: "topup",
+            userId,
+            amount,
+            timestamp: Date.now(),
+            telegramChargeId: payment.telegram_payment_charge_id || null,
+            providerChargeId: payment.provider_payment_charge_id || null,
+            status: "completed"
+          });
+
+          return currentWallet;
+        });
+
+        console.log(`✅ Wallet updated for ${userId}: +${amount} ⭐, total = ${newWallet}`);
 
         await bot.telegram.sendMessage(
           userId,
@@ -121,7 +155,7 @@ export function initPvpWalletPayments({ bot, db }) {
         if (!battle) return;
 
         const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
-        if (ctx.from.id !== expectedId) {
+        if (ctx.from.id.toString() !== expectedId.toString()) {
           return ctx.reply("⚠️ This invoice is not for you.");
         }
 
@@ -146,6 +180,54 @@ export function initPvpWalletPayments({ bot, db }) {
       } catch {}
     }
   });
+
+  /**
+   * 💳 Атомарное списание с wallet для PvP (с защитой от race conditions)
+   */
+  bot.deductFromWallet = async function(userId, amount, battleId, role) {
+    const userRef = doc(db, "users", userId.toString());
+    
+    try {
+      const result = await runTransaction(db, async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        
+        if (!userSnap.exists()) {
+          throw new Error("User not found");
+        }
+
+        const currentWallet = userSnap.data().wallet || 0;
+        
+        if (currentWallet < amount) {
+          throw new Error("Insufficient funds");
+        }
+
+        const newWallet = currentWallet - amount;
+        transaction.update(userRef, { 
+          wallet: newWallet,
+          lastWalletUpdate: Date.now()
+        });
+
+        // 📝 Логируем списание
+        const transactionRef = doc(collection(db, "transactions"));
+        transaction.set(transactionRef, {
+          type: "pvp_deduct",
+          userId: userId.toString(),
+          amount: -amount,
+          battleId,
+          role,
+          timestamp: Date.now(),
+          status: "completed"
+        });
+
+        return newWallet;
+      });
+
+      return { success: true, newWallet: result };
+    } catch (err) {
+      console.error(`❌ Wallet deduction failed for ${userId}:`, err);
+      return { success: false, error: err.message };
+    }
+  };
 }
 
 /**

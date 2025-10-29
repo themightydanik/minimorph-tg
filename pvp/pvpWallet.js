@@ -21,14 +21,18 @@ export function initPvpWalletLogic({ bot, db }) {
       ])
     };
 
-    await bot.telegram.sendMessage(
-      chatId,
-      "💡 Choose how many Stars to add to your Wallet:",
-      { reply_markup: keyboard }
-    );
+    try {
+      await bot.telegram.sendMessage(
+        chatId,
+        "💡 Choose how many Stars to add to your Wallet:",
+        { reply_markup: keyboard }
+      );
+    } catch (err) {
+      console.error("Error showing wallet topup options:", err);
+    }
   }
 
-  // Сохраняем функцию на объект бота, чтобы вызывать из index.js
+  // Сохраняем функцию на объект бота, чтобы можно было вызывать из index.js
   bot.showWalletTopupOptions = showWalletTopupOptions;
 
   /**
@@ -44,8 +48,7 @@ export function initPvpWalletLogic({ bot, db }) {
     const description = `Top up your internal Wallet with ${amount} Stars.`;
     const startParameter = `wallet_topup_${Date.now()}`;
 
-    // Telegram Stars — валюта XTR
-    const prices = [{ label: `${amount} Stars`, amount }];
+    const prices = [{ label: `${amount} Stars`, amount }]; // Telegram Stars — валюта XTR
 
     try {
       await ctx.replyWithInvoice({
@@ -75,7 +78,7 @@ export function initPvpWalletLogic({ bot, db }) {
   });
 
   /**
-   * 💰 После успешной оплаты Stars — зачисляем эквивалентную сумму во внутренний Wallet пользователя (в Firestore)
+   * 💰 После успешной оплаты Stars — зачисляем сумму во внутренний Wallet пользователя (в Firestore)
    */
   bot.on("successful_payment", async (ctx) => {
     try {
@@ -89,26 +92,33 @@ export function initPvpWalletLogic({ bot, db }) {
       const userRef = doc(db, "users", userId);
       const userSnap = await getDoc(userRef);
 
-      // если пользователь впервые — создаём документ
+      let newWallet;
       if (!userSnap.exists()) {
+        // Пользователь впервые — создаём документ
         await setDoc(userRef, {
           username: ctx.from.username || `User-${userId}`,
           wallet: amount,
           createdAt: Date.now(),
         });
+        newWallet = amount;
+        console.log(`🆕 Wallet created for ${userId}: ${newWallet} ⭐`);
       } else {
         const currentWallet = userSnap.data().wallet || 0;
-        await updateDoc(userRef, { wallet: currentWallet + amount });
+        newWallet = currentWallet + amount;
+        await updateDoc(userRef, { wallet: newWallet });
+        console.log(`✅ Wallet updated for ${userId}: +${amount} ⭐, total = ${newWallet} ⭐`);
       }
 
       await bot.telegram.sendMessage(
         userId,
-        `✅ Payment successful! ${amount} ⭐ added to your Wallet.\nCurrent balance: ${userSnap.exists() ? (userSnap.data().wallet || 0) + amount : amount} ⭐`
+        `✅ Payment successful! ${amount} ⭐ added to your Wallet.\nCurrent balance: ${newWallet} ⭐`
       );
 
     } catch (err) {
       console.error("Wallet update error:", err);
-      await ctx.reply("⚠️ Error updating Wallet. Contact admin.");
+      try {
+        await ctx.reply("⚠️ Error updating Wallet. Contact admin.");
+      } catch {}
     }
   });
 }

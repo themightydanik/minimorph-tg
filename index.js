@@ -122,12 +122,21 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
 
   const battle = await createBattle(db, initiator, prizePool);
 
-  if (prizePool === 0) {
-    await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "paid_by_both" });
-    await ctx.reply(`🎮 @${initiator.username || initiator.first_name}, your battle without prize is ready!`);
-    await startBattle(bot, db, battle.id);
-    return;
-  }
+if (prizePool === 0) {
+  // Батл без приза — не платёж, но ждём оппонента
+  await updateBattle(db, battle.id, { initiatorPaid: true, opponentPaid: true, status: "waiting_for_opponent" });
+
+  const lobbyKeyboard = {
+    inline_keyboard: [[{ text: "⚔️ Join Free Battle", callback_data: `accept_battle_${battle.id}` }]]
+  };
+
+  await ctx.reply(
+    `🎮 @${initiator.username || initiator.first_name}, your free battle is ready! Waiting for an opponent...`,
+    { reply_markup: lobbyKeyboard }
+  );
+  return;
+}
+
 
   const lobbyKeyboard = {
     inline_keyboard: [[{ text: "⚔️ Accept Challenge", callback_data: `accept_battle_${battle.id}` }]]

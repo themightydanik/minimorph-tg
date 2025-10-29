@@ -4,21 +4,27 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 export function initPvpWalletLogic({ bot, db }) {
   const walletAmounts = [1, 125, 250]; // доступные пакеты Stars
 
-  // Функция для показа кнопок пополнения Wallet
-  export async function showWalletTopupOptions(ctx) {
+  /**
+   * Показывает пользователю варианты пополнения Wallet
+   */
+  async function showWalletTopupOptions(ctx) {
     const keyboard = {
-      inline_keyboard: walletAmounts.map((amount) => [
+      inline_keyboard: walletAmounts.map(amount => [
         { text: `💳 Add ${amount} Star${amount > 1 ? "s" : ""}`, callback_data: `wallet_add_${amount}` }
       ])
     };
     await ctx.reply("💡 Choose how many Stars to add to your Wallet:", { reply_markup: keyboard });
   }
 
-  // Кнопки для пополнения Wallet
+  // Сохраняем функцию на объект бота, чтобы вызывать из index.js
+  bot.showWalletTopupOptions = showWalletTopupOptions;
+
+  /**
+   * Обработка нажатия кнопки Top Up Wallet
+   */
   bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const amount = parseInt(ctx.match[1], 10);
-
     const telegramId = ctx.from.id.toString();
     const payload = `wallet_topup:${telegramId}:${amount}:${Date.now()}`;
     const title = `${amount} Stars for Wallet`;
@@ -42,12 +48,16 @@ export function initPvpWalletLogic({ bot, db }) {
     }
   });
 
-  // Pre-checkout (обязательно подтверждаем)
+  /**
+   * Pre-checkout: подтверждение платежа Stars
+   */
   bot.on("pre_checkout_query", async (ctx) => {
     await ctx.answerPreCheckoutQuery(true);
   });
 
-  // После успешной оплаты Stars — зачисляем в Wallet
+  /**
+   * После успешной оплаты Stars — зачисляем в Wallet
+   */
   bot.on("successful_payment", async (ctx) => {
     try {
       const payment = ctx.message.successful_payment;
@@ -73,7 +83,4 @@ export function initPvpWalletLogic({ bot, db }) {
       await ctx.reply("⚠️ Error updating Wallet. Contact admin.");
     }
   });
-
-  // Экспортируем функцию для использования в index.js
-  bot.showWalletTopupOptions = showWalletTopupOptions;
 }

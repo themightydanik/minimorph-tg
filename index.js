@@ -150,17 +150,27 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
 
   const needed = battle.prizePool / 2;
 
+  // Проверяем баланс инициатора
+  const initiatorRef = doc(db, "users", battle.initiatorId.toString());
+  const initiatorSnap = await getDoc(initiatorRef);
+  const initiatorWallet = (initiatorSnap.exists() && initiatorSnap.data().wallet) || 0;
+
   // Показываем инициатору кнопку оплаты прямо в батле
   const payKeyboard = { inline_keyboard: [[
-    { text: "💳 Pay using Wallet / Top Up", callback_data: `pay_wallet_${battleId}` }
+    { text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }
   ]] };
 
   await bot.telegram.sendMessage(battle.initiatorId,
-    `🎮 Opponent @${ctx.from.username} joined! Pay your share to start the battle (${needed} ⭐):`,
+    `🎮 Opponent @${ctx.from.username} joined! Pay your share to start the battle (${needed} ⭐). Current Wallet balance: ${initiatorWallet} ⭐`,
     { reply_markup: payKeyboard }
   );
 
-  await ctx.reply(`🎮 You joined the battle as opponent! Waiting for initiator to pay...`);
+  // Если баланса недостаточно, приватно предлагаем Top Up
+  if (initiatorWallet < needed) {
+    await bot.showWalletTopupOptions({ chat: { id: battle.initiatorId } });
+  }
+
+  await ctx.reply(`🎮 You joined the battle as opponent @${ctx.from.username}! Waiting for initiator to pay...`);
 });
 
 // === Pay using Wallet ===
@@ -200,13 +210,17 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
     const opponentWallet = (opponentSnap.exists() && opponentSnap.data().wallet) || 0;
 
     const opponentKeyboard = { inline_keyboard: [[
-      { text: "💳 Pay using Wallet / Top Up", callback_data: `pay_wallet_${battleId}` }
+      { text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }
     ]] };
 
     await bot.telegram.sendMessage(opponentId,
-      `🎮 It's your turn to pay for the battle (${needed} ⭐):`,
+      `🎮 It's your turn to pay for the battle (${needed} ⭐). Current Wallet balance: ${opponentWallet} ⭐`,
       { reply_markup: opponentKeyboard }
     );
+
+    if (opponentWallet < needed) {
+      await bot.showWalletTopupOptions({ chat: { id: opponentId } });
+    }
   }
 
   // Если оба оплатили, стартуем батл

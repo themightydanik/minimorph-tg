@@ -35,7 +35,16 @@ const slotRouter = initSlotModule({
 app.use("/slot", slotRouter);
 
 // === PvP Wallet Logic ===
-initPvpWalletLogic({ bot, db });
+initPvpWalletLogic({
+  bot,
+  db,
+  onStarsPurchased: async (userId, amount) => {
+    const userRef = doc(db, "users", userId.toString());
+    const userSnap = await getDoc(userRef);
+    const currentWallet = (userSnap.exists() && userSnap.data().wallet) || 0;
+    await updateDoc(userRef, { wallet: currentWallet + amount });
+  }
+});
 
 // === Global Commands ===
 bot.command(["support", "paysupport"], async (ctx) => {
@@ -120,7 +129,7 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const prizePool = parseInt(ctx.match[1]);
   const initiator = ctx.from;
 
-  // Создаём батл в лобби
+  // Создаём батл
   const battle = await createBattle(db, initiator, prizePool);
 
   if (prizePool === 0) {
@@ -130,7 +139,7 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     return;
   }
 
-  // Показываем лобби с кнопкой для оппонента
+  // Лобби
   const lobbyKeyboard = {
     inline_keyboard: [[{ text: "⚔️ Accept Challenge", callback_data: `accept_battle_${battle.id}` }]]
   };
@@ -155,22 +164,26 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
   const initiatorSnap = await getDoc(initiatorRef);
   const initiatorWallet = (initiatorSnap.exists() && initiatorSnap.data().wallet) || 0;
 
-  // Показываем инициатору кнопку оплаты прямо в батле
-  const payKeyboard = { inline_keyboard: [[
-    { text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }
-  ]] };
+  // Показываем кнопку оплаты прямо в батле
+  const payKeyboard = {
+    inline_keyboard: [[{ text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }]]
+  };
 
-  await bot.telegram.sendMessage(battle.initiatorId,
+  await ctx.reply(
+    `🎮 You joined the battle as opponent of @${battle.initiatorUsername || battle.initiatorName}! Waiting for initiator to pay...`,
+    { reply_markup: payKeyboard }
+  );
+
+  // Отправляем уведомление инициатору
+  await bot.telegram.sendMessage(
+    battle.initiatorId,
     `🎮 Opponent @${ctx.from.username} joined! Pay your share to start the battle (${needed} ⭐). Current Wallet balance: ${initiatorWallet} ⭐`,
     { reply_markup: payKeyboard }
   );
 
-  // Если баланса недостаточно, приватно предлагаем Top Up
   if (initiatorWallet < needed) {
     await bot.showWalletTopupOptions({ chat: { id: battle.initiatorId } });
   }
-
-  await ctx.reply(`🎮 You joined the battle as opponent @${ctx.from.username}! Waiting for initiator to pay...`);
 });
 
 // === Pay using Wallet ===
@@ -186,7 +199,6 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   const needed = battle.prizePool / 2;
 
   if (wallet < needed) {
-    // Предлагаем приватно топап
     await bot.showWalletTopupOptions({ chat: { id: ctx.from.id } });
     return;
   }
@@ -202,18 +214,19 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
 
   const updatedBattle = await getBattleById(db, battleId);
 
-  // Если инициатор оплатил и оппонент есть, запускаем оплату оппонента
+  // Если инициатор оплатил, отправляем кнопку оппоненту
   if (updatedBattle.initiatorPaid && !updatedBattle.opponentPaid && ctx.from.id === updatedBattle.initiatorId) {
     const opponentId = updatedBattle.opponentId;
     const opponentRef = doc(db, "users", opponentId.toString());
     const opponentSnap = await getDoc(opponentRef);
     const opponentWallet = (opponentSnap.exists() && opponentSnap.data().wallet) || 0;
 
-    const opponentKeyboard = { inline_keyboard: [[
-      { text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }
-    ]] };
+    const opponentKeyboard = {
+      inline_keyboard: [[{ text: "💳 Pay using Wallet", callback_data: `pay_wallet_${battleId}` }]]
+    };
 
-    await bot.telegram.sendMessage(opponentId,
+    await bot.telegram.sendMessage(
+      opponentId,
       `🎮 It's your turn to pay for the battle (${needed} ⭐). Current Wallet balance: ${opponentWallet} ⭐`,
       { reply_markup: opponentKeyboard }
     );

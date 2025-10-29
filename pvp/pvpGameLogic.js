@@ -69,7 +69,7 @@ export async function startBattle(bot, db, battleId) {
   const battle = await getBattleById(db, battleId);
   if (!battle) return;
 
-  // ✅ Разрешаем старт для батлов с призовым пулом или без
+  // ✅ Разрешаем старт даже для батлов без приза
   if (battle.prizePool > 0 && battle.status !== "paid_by_both") {
     console.log(`⚠️ Battle ${battleId} cannot start until both players have paid.`);
     return;
@@ -84,9 +84,15 @@ export async function startBattle(bot, db, battleId) {
     ],
   };
 
-  const initiatorMsg = `🎮 The battle has begun against @${battle.opponentUsername || "Opponent"}! It's your turn first.`;
-  const opponentMsg = `🎮 The battle has begun against @${battle.initiatorUsername || "Initiator"}! Wait for your turn.`;
+  // ✅ Отправляем сообщение в общий чат батла
+  const message = `
+🔥 The battle has begun!
+👤 @${battle.initiatorUsername} vs 👤 @${battle.opponentUsername}
 
-  await bot.telegram.sendMessage(battle.initiatorId, initiatorMsg, { reply_markup: keyboard });
-  await bot.telegram.sendMessage(battle.opponentId, opponentMsg, { reply_markup: keyboard });
+@${battle.initiatorUsername}, it's your turn first! 🎲
+  `;
+
+  // Отправляем сообщение в чат батла
+  await bot.telegram.sendMessage(battle.chatId, message, { reply_markup: keyboard });
 }
+

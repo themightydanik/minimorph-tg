@@ -5,15 +5,20 @@ export function initPvpWalletLogic({ bot, db }) {
   const walletAmounts = [1, 125, 250]; // доступные пакеты Stars
 
   /**
-   * Показывает пользователю варианты пополнения Wallet
+   * Показывает пользователю варианты пополнения Wallet.
+   * ctx может быть обычным контекстом Telegraf или объектом { chat: { id } } для приватного сообщения.
    */
   async function showWalletTopupOptions(ctx) {
+    const chatId = ctx.chat?.id || ctx.from?.id;
+    if (!chatId) return console.error("No chat id for wallet topup");
+
     const keyboard = {
       inline_keyboard: walletAmounts.map(amount => [
         { text: `💳 Add ${amount} Star${amount > 1 ? "s" : ""}`, callback_data: `wallet_add_${amount}` }
       ])
     };
-    await ctx.reply("💡 Choose how many Stars to add to your Wallet:", { reply_markup: keyboard });
+
+    await bot.telegram.sendMessage(chatId, "💡 Choose how many Stars to add to your Wallet:", { reply_markup: keyboard });
   }
 
   // Сохраняем функцию на объект бота, чтобы вызывать из index.js
@@ -75,7 +80,7 @@ export function initPvpWalletLogic({ bot, db }) {
 
       await updateDoc(userRef, { wallet: currentWallet + amount });
 
-      await ctx.reply(
+      await bot.telegram.sendMessage(userId,
         `✅ Payment successful! ${amount} Stars added to your Wallet. Current balance: ${currentWallet + amount} ⭐`
       );
     } catch (err) {

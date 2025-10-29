@@ -1,5 +1,5 @@
 // pvp/pvpBattle.js
-import initPvpPayments from "./pvpPayments.js";
+import { initPvpWalletPayments } from "./pvp/pvpWalletPayments.js"; // 🟢 объединённый модуль
 import { initGameLogic } from "./pvpGameLogic.js";
 
 export default function initPvpModule({ bot, db }) {

@@ -5,7 +5,7 @@ import initSlotModule from "./slot.js";
 import { db } from "./firebase.js";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js";
-import { initPvpWalletLogic } from "./pvp/pvpWallet.js";
+import { initPvpWalletLogic, showWalletTopupOptions } from "./pvp/pvpWallet.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 
 dotenv.config();
@@ -108,15 +108,10 @@ bot.action("start_battle", async (ctx) => {
       ],
       [{ text: "💎 500 ⭐", callback_data: "pvp_prize_500" }],
       [{ text: "🎯 Without Prize", callback_data: "pvp_prize_0" }],
-      [
-        { text: "💳 Top Up Wallet 1", callback_data: "wallet_add_1" },
-        { text: "💳 Top Up Wallet 125", callback_data: "wallet_add_125" },
-        { text: "💳 Top Up Wallet 250", callback_data: "wallet_add_250" },
-      ],
     ]
   };
 
-  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize or top up Wallet:`, { reply_markup: keyboard });
+  await ctx.reply(`⚔️ @${user.username || user.first_name}, choose your prize pool:`, { reply_markup: keyboard });
 });
 
 // === Handle prize pool selection ===
@@ -145,19 +140,21 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   if (wallet >= prizePool / 2) {
     await updateBattle(db, battle.id, { initiatorPaid: true });
     const keyboard = {
-      inline_keyboard: [[{ text: "💸 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]]
+      inline_keyboard: [[{ text: "💰 Pay using Wallet", callback_data: `pay_wallet_${battle.id}` }]]
     };
     await ctx.reply(`💳 You have ${wallet} ⭐ in your Wallet. Pay for the battle:`, { reply_markup: keyboard });
   } else {
     const topupKeyboard = {
-      inline_keyboard: [
-        [{ text: "💳 Add 1 Star", callback_data: "wallet_add_1" }],
-        [{ text: "💳 Add 125 Stars", callback_data: "wallet_add_125" }],
-        [{ text: "💳 Add 250 Stars", callback_data: "wallet_add_250" }]
-      ]
+      inline_keyboard: [[{ text: "💳 Top Up Wallet", callback_data: "wallet_topup_from_battle" }]]
     };
     await ctx.reply(`💡 Your Wallet balance is ${wallet} ⭐. Top up to participate.`, { reply_markup: topupKeyboard });
   }
+});
+
+// === Activate Wallet topup options from battle ===
+bot.action("wallet_topup_from_battle", async (ctx) => {
+  await ctx.answerCbQuery();
+  await showWalletTopupOptions(ctx);
 });
 
 // === Pay using Wallet ===

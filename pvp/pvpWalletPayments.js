@@ -1,9 +1,8 @@
-// pvp/pvpWalletPayments.js (IMPROVED VERSION)
-import { doc, getDoc, setDoc, updateDoc, runTransaction, collection, addDoc } from "firebase/firestore";
-import { updateBattle, getBattleById } from "./pvpFirebase.js";
+// pvp/pvpWalletPayments.js (CLEANED - только UI, БЕЗ обработчиков платежей)
+import { doc, runTransaction, collection } from "firebase/firestore";
 
 /**
- * 💳 Инициализация логики кошелька и платежей (Wallet + PvP)
+ * 💳 Инициализация UI для кошелька (БЕЗ обработчиков платежей - они в paymentsHandler.js)
  */
 export function initPvpWalletPayments({ bot, db }) {
   const walletAmounts = [1, 125, 250]; // пакеты Stars
@@ -35,7 +34,7 @@ export function initPvpWalletPayments({ bot, db }) {
 
   bot.showWalletTopupOptions = showWalletTopupOptions;
 
-  // --- 💰 Обработка выбора пакета Stars ---
+  // --- 💰 Обработка выбора пакета Stars (создание инвойса) ---
   bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
 
@@ -64,120 +63,6 @@ export function initPvpWalletPayments({ bot, db }) {
     } catch (err) {
       console.error("Wallet invoice error:", err);
       await ctx.reply("⚠️ Error creating invoice. Contact admin.");
-    }
-  });
-
-  // --- ✅ Разрешение на оплату Stars ---
-  bot.on("pre_checkout_query", async (ctx) => {
-    try {
-      await ctx.answerPreCheckoutQuery(true);
-    } catch (err) {
-      console.error("Pre-checkout error:", err);
-    }
-  });
-
-  // --- 💸 Обработка успешных оплат (Stars + PvP) ---
-  bot.on("successful_payment", async (ctx) => {
-    try {
-      const payment = ctx.message.successful_payment;
-      const payload = payment.invoice_payload;
-
-      if (!payload) return;
-      console.log("💰 Successful payment payload:", payload);
-
-      // --- 1️⃣ Пополнение Wallet ---
-      if (payload.startsWith("wallet_topup:")) {
-        const [, userId, amountStr, timestamp] = payload.split(":");
-        const amount = parseInt(amountStr, 10);
-        
-        // 🔒 Защита от дублирования: проверяем уникальность транзакции
-        const transactionId = `topup_${userId}_${timestamp}`;
-        const transactionRef = doc(db, "transactions", transactionId);
-        const transactionSnap = await getDoc(transactionRef);
-        
-        if (transactionSnap.exists()) {
-          console.warn(`⚠️ Duplicate transaction detected: ${transactionId}`);
-          return ctx.reply("⚠️ This payment was already processed.");
-        }
-
-        const userRef = doc(db, "users", userId);
-
-        // 🔒 Используем транзакцию для атомарного обновления
-        const newWallet = await runTransaction(db, async (transaction) => {
-          const userSnap = await transaction.get(userRef);
-          
-          let currentWallet = 0;
-          if (!userSnap.exists()) {
-            // Создаём нового пользователя
-            transaction.set(userRef, {
-              username: ctx.from.username || `User-${userId}`,
-              wallet: amount,
-              createdAt: Date.now(),
-            });
-            currentWallet = amount;
-          } else {
-            currentWallet = userSnap.data().wallet || 0;
-            transaction.update(userRef, { 
-              wallet: currentWallet + amount,
-              lastWalletUpdate: Date.now()
-            });
-            currentWallet += amount;
-          }
-
-          // 📝 Логируем транзакцию
-          transaction.set(transactionRef, {
-            type: "topup",
-            userId,
-            amount,
-            timestamp: Date.now(),
-            telegramChargeId: payment.telegram_payment_charge_id || null,
-            providerChargeId: payment.provider_payment_charge_id || null,
-            status: "completed"
-          });
-
-          return currentWallet;
-        });
-
-        console.log(`✅ Wallet updated for ${userId}: +${amount} ⭐, total = ${newWallet}`);
-
-        await bot.telegram.sendMessage(
-          userId,
-          `✅ Payment successful!\n💫 Added ${amount} ⭐ to your Wallet.\n💰 Current balance: ${newWallet} ⭐`
-        );
-        return;
-      }
-
-      // --- 2️⃣ PvP Battle оплата ---
-      if (payload.startsWith("pvp_")) {
-        const [type, battleId, role] = payload.split("_");
-
-        const battle = await getBattleById(db, battleId);
-        if (!battle) return;
-
-        const expectedId = role === "initiator" ? battle.initiatorId : battle.opponentId;
-        if (ctx.from.id.toString() !== expectedId.toString()) {
-          return ctx.reply("⚠️ This invoice is not for you.");
-        }
-
-        if (role === "initiator") await updateBattle(db, battleId, { initiatorPaid: true });
-        if (role === "opponent") await updateBattle(db, battleId, { opponentPaid: true });
-
-        const updated = await getBattleById(db, battleId);
-        if (updated.initiatorPaid && updated.opponentPaid) {
-          await updateBattle(db, battleId, { status: "paid_by_both" });
-        }
-
-        await ctx.reply("✅ Payment successful! You can return to the battle chat.");
-        return;
-      }
-
-      console.warn("⚠️ Unknown payment type:", payload);
-
-    } catch (err) {
-      console.error("❌ Payment handling error:", err);
-      try {
-        await ctx.reply("⚠️ Payment error. Please contact admin.");
-      } catch {}
     }
   });
 
@@ -228,27 +113,4 @@ export function initPvpWalletPayments({ bot, db }) {
       return { success: false, error: err.message };
     }
   };
-}
-
-/**
- * 🧾 Создание инвойса для PvP
- */
-export async function createInvoiceForUser(bot, db, userId, battleId, role) {
-  try {
-    const battle = await getBattleById(db, battleId);
-    if (!battle) return;
-
-    const amount = battle.prizePool / 2;
-
-    await bot.telegram.sendInvoice(userId, {
-      title: "PvP Battle Entry",
-      description: `Entry fee (${role})`,
-      payload: `pvp_${battleId}_${role}`,
-      currency: "XTR",
-      prices: [{ label: "Entry Fee", amount }],
-      provider_token: "", // ⭐ Stars
-    });
-  } catch (err) {
-    console.error("❌ Invoice creation error:", err);
-  }
 }

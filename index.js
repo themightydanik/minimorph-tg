@@ -1,4 +1,4 @@
-// index.js (FIXED VERSION - with unified payments & type fixes)
+// index.js (COMPLETE FIXED VERSION)
 import express from 'express';
 import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
@@ -9,11 +9,13 @@ import { createBattle, getBattleById, updateBattle } from "./pvp/pvpFirebase.js"
 import { initPvpWalletPayments } from "./pvp/pvpWalletPayments.js";
 import { startBattle } from "./pvp/pvpGameLogic.js";
 import { initGameLogic } from "./pvp/pvpGameLogic.js";
-import { initUnifiedPayments } from "./paymentsHandler.js"; // 🟢 НОВЫЙ единый обработчик
+import { initUnifiedPayments } from "./paymentsHandler.js";
 
 dotenv.config();
 
 const app = express();
+app.use(express.json()); // 🔒 Добавляем для обработки JSON в referral endpoint
+
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.db = db;
@@ -41,7 +43,7 @@ const slotRouter = initSlotModule({
   PRICE_STARS: SLOT_PRICE_STARS,
   TICKETS_PER_PURCHASE: SLOT_TICKETS_PER_PURCHASE,
   JACKPOT_REWARD: parseInt(process.env.SLOT_JACKPOT_REWARD || "100", 10),
-  PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "5", 10),
+  PAIR_REWARD: parseInt(process.env.SLOT_PAIR_REWARD || "8", 10),
   NEWBIE_SPINS: parseInt(process.env.SLOT_NEWBIE_SPINS || "9", 10),
   NEWBIE_MULTIPLIER: parseFloat(process.env.SLOT_NEWBIE_MULTIPLIER || "1.3"),
 });
@@ -116,6 +118,50 @@ bot.start(async (ctx) => {
     `👾 Hey 👋, ${firstName}! Welcome to Minimorph game!`,
     { reply_markup: keyboard }
   );
+});
+
+// === Slot Machine Handlers ===
+bot.action('play_slot', async (ctx) => {
+  await ctx.answerCbQuery();
+  const telegramId = ctx.from.id.toString();
+  const userRef = doc(db, "users", telegramId);
+  const userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    return ctx.reply("❗ You are not registered. Run /start first.");
+  }
+  
+  const data = userSnap.data();
+  const tickets = data.slotTickets || 0;
+  
+  await ctx.reply(
+    `🎰 Slot Machine\n\n` +
+    `🎟️ Your tickets: ${tickets}\n` +
+    `💰 Price: ${SLOT_PRICE_STARS} ⭐ per purchase (you get ${SLOT_TICKETS_PER_PURCHASE} ticket(s))\n\n` +
+    `🎲 To play: Send the slot machine emoji 🎰 to the chat — Telegram will spin it automatically!`
+  );
+});
+
+bot.action('buy_ticket', async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  try {
+    const telegramId = ctx.from.id.toString();
+    const payload = `buy_ticket:${telegramId}:${Date.now()}`;
+
+    await ctx.replyWithInvoice({
+      title: `Buy ${SLOT_TICKETS_PER_PURCHASE} slot ticket(s)`,
+      description: `${SLOT_TICKETS_PER_PURCHASE} spins for the slot machine — cost ${SLOT_PRICE_STARS} ⭐`,
+      payload,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ label: `${SLOT_TICKETS_PER_PURCHASE} slot tickets`, amount: SLOT_PRICE_STARS }],
+      start_parameter: "buy_slot"
+    });
+  } catch (err) {
+    console.error("buy_ticket error:", err);
+    return ctx.reply("⚠️ Error creating invoice. Contact the admin.");
+  }
 });
 
 // === Check Wallet ===
@@ -262,7 +308,7 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     return ctx.reply("⚠️ Someone already accepted this battle.");
   }
   
-  // 🔒 Проверяем, что игрок не играет сам с собой (сравниваем как строки)
+  // 🔒 Проверяем, что игрок не играет сам с собой
   if (battle.initiatorId.toString() === ctx.from.id.toString()) {
     return ctx.reply("⚠️ You cannot accept your own battle!");
   }

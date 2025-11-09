@@ -487,6 +487,117 @@ bot.catch((err, ctx) => {
   } catch {}
 });
 
+
+// === Mini-App Slot Machine Invoice Handler ===
+bot.action(/^buy_miniapp_slots_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  try {
+    const telegramId = ctx.match[1];
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
+    const MINIAPP_SLOT_PRICE = 1; // 1 Star для тестирования (потом 20)
+    const SPINS_COUNT = 3;
+
+    await ctx.replyWithInvoice({
+      title: `Buy ${SPINS_COUNT} Slot Spins`,
+      description: `Get ${SPINS_COUNT} spins for the Mini-App Slot Machine`,
+      payload,
+      provider_token: "", // Для Telegram Stars пустой
+      currency: "XTR",
+      prices: [{ 
+        label: `${SPINS_COUNT} Spins`, 
+        amount: MINIAPP_SLOT_PRICE 
+      }],
+      start_parameter: "miniapp_slot"
+    });
+  } catch (err) {
+    console.error("Mini-App slot invoice error:", err);
+    return ctx.reply("⚠️ Error creating invoice. Please try again or contact @Deviola_programmer");
+  }
+});
+
+// === Webhook endpoint для создания инвойса из Mini-App ===
+app.post("/create-slot-invoice", async (req, res) => {
+  try {
+    const { telegramId } = req.body;
+    
+    if (!telegramId) {
+      return res.status(400).json({ error: "Missing telegramId" });
+    }
+
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
+    const MINIAPP_SLOT_PRICE = 1; // 1 Star для тестирования
+    const SPINS_COUNT = 3;
+
+    // Создаём инвойс
+    const invoice = {
+      title: `Buy ${SPINS_COUNT} Slot Spins`,
+      description: `Get ${SPINS_COUNT} spins for the Slot Machine`,
+      payload,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ 
+        label: `${SPINS_COUNT} Spins`, 
+        amount: MINIAPP_SLOT_PRICE 
+      }],
+      start_parameter: "miniapp_slot"
+    };
+
+    // Отправляем инвойс пользователю
+    const result = await bot.telegram.sendInvoice(
+      telegramId,
+      invoice.title,
+      invoice.description,
+      invoice.payload,
+      invoice.provider_token,
+      invoice.currency,
+      invoice.prices,
+      { start_parameter: invoice.start_parameter }
+    );
+
+    res.json({ 
+      success: true, 
+      message: "Invoice sent",
+      invoiceMessageId: result.message_id
+    });
+
+  } catch (error) {
+    console.error("Error creating slot invoice:", error);
+    res.status(500).json({ error: "Failed to create invoice" });
+  }
+});
+
+// === Альтернатива: Deep link для инвойса ===
+// Пользователь переходит по ссылке t.me/bot?start=buy_slots
+bot.command("start", async (ctx) => {
+  const startParam = ctx.message.text.split(" ")[1];
+  
+  // Если параметр buy_slots - создаём инвойс
+  if (startParam === "buy_slots") {
+    const telegramId = ctx.from.id.toString();
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
+    const MINIAPP_SLOT_PRICE = 1;
+    const SPINS_COUNT = 3;
+
+    try {
+      await ctx.replyWithInvoice({
+        title: `Buy ${SPINS_COUNT} Slot Spins`,
+        description: `Get ${SPINS_COUNT} spins for the Slot Machine`,
+        payload,
+        provider_token: "",
+        currency: "XTR",
+        prices: [{ label: `${SPINS_COUNT} Spins`, amount: MINIAPP_SLOT_PRICE }],
+        start_parameter: "miniapp_slot"
+      });
+      return;
+    } catch (err) {
+      console.error("Error creating invoice:", err);
+      return ctx.reply("⚠️ Error creating invoice. Please try again.");
+    }
+  }
+
+  });
+
 // === Ping route ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 

@@ -1,4 +1,4 @@
-// index.js (COMPLETE FIXED VERSION)
+// index.js (COMPLETE VERSION WITH MINIAPP SLOTS)
 import express from 'express';
 import { Telegraf } from 'telegraf';
 import dotenv from 'dotenv';
@@ -14,7 +14,7 @@ import { initUnifiedPayments } from "./paymentsHandler.js";
 dotenv.config();
 
 const app = express();
-app.use(express.json()); // 🔒 Добавляем для обработки JSON в referral endpoint
+app.use(express.json());
 
 const port = process.env.PORT || 3000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -25,6 +25,10 @@ const SLOT_ADMIN_ID = process.env.SLOT_ADMIN_ID || "917309737";
 const SLOT_ADMIN_SECRET = process.env.SLOT_ADMIN_SECRET || "SherbetLemon123@";
 const SLOT_PRICE_STARS = parseInt(process.env.SLOT_PRICE_STARS || "20", 10);
 const SLOT_TICKETS_PER_PURCHASE = parseInt(process.env.SLOT_TICKETS_PER_PURCHASE || "3", 10);
+
+// 🎰 Mini-App Slot Constants
+const MINIAPP_SLOT_PRICE = parseInt(process.env.MINIAPP_SLOT_PRICE || "1", 10);
+const MINIAPP_SPINS_PER_PURCHASE = parseInt(process.env.MINIAPP_SPINS_PER_PURCHASE || "3", 10);
 
 // === 🔥 UNIFIED PAYMENTS (обрабатывает ВСЕ платежи) ===
 initUnifiedPayments({ 
@@ -95,8 +99,37 @@ bot.action("topup_wallet", async (ctx) => {
 
 // === /start handler ===
 bot.start(async (ctx) => {
-  const firstName = ctx.from.first_name || "there";
+  const startParam = ctx.message.text.split(" ")[1];
+  
+  // 🎰 Mini-App Slot Purchase Handler
+  if (startParam === "buy_slots") {
+    const telegramId = ctx.from.id.toString();
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
 
+    try {
+      await ctx.replyWithInvoice({
+        title: `Buy ${MINIAPP_SPINS_PER_PURCHASE} Slot Spins`,
+        description: `Get ${MINIAPP_SPINS_PER_PURCHASE} spins for the Mini-App Slot Machine`,
+        payload,
+        provider_token: "",
+        currency: "XTR",
+        prices: [{ 
+          label: `${MINIAPP_SPINS_PER_PURCHASE} Spins`, 
+          amount: MINIAPP_SLOT_PRICE 
+        }],
+        start_parameter: "miniapp_slot"
+      });
+      
+      console.log(`🎰 Mini-App slot invoice created for user ${telegramId}`);
+      return; // ВАЖНО: выходим чтобы не показывать стандартное меню
+    } catch (err) {
+      console.error("Error creating Mini-App slot invoice:", err);
+      return ctx.reply("⚠️ Error creating invoice. Please try again or contact @Deviola_programmer");
+    }
+  }
+
+  // Стандартное приветствие
+  const firstName = ctx.from.first_name || "there";
   const startGameLink = `https://t.me/MinimorphBot?startapp=${ctx.from.id}`;
   const howToPlayLink = 'https://minimorph.space/minimorph-telegram-game/';
   const communityLink = 'https://t.me/minimorph';
@@ -120,7 +153,7 @@ bot.start(async (ctx) => {
   );
 });
 
-// === Slot Machine Handlers ===
+// === Slot Machine Handlers (Bot-based) ===
 bot.action('play_slot', async (ctx) => {
   await ctx.answerCbQuery();
   const telegramId = ctx.from.id.toString();
@@ -251,11 +284,9 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
   const prizePool = parseInt(ctx.match[1]);
   const initiator = ctx.from;
 
-  // Создаём батл
   const battle = await createBattle(db, initiator, prizePool);
 
   if (prizePool === 0) {
-    // 🔒 Батл без приза — сразу сохраняем chatId и готовим к старту
     await updateBattle(db, battle.id, { 
       initiatorPaid: true, 
       opponentPaid: true, 
@@ -277,7 +308,6 @@ bot.action(/^pvp_prize_(\d+)$/, async (ctx) => {
     return;
   }
 
-  // 🔒 Батл с призом — сохраняем chatId сразу и ждём оппонента
   await updateBattle(db, battle.id, { chatId: ctx.chat.id });
 
   const lobbyKeyboard = {
@@ -308,7 +338,6 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     return ctx.reply("⚠️ Someone already accepted this battle.");
   }
   
-  // 🔒 Проверяем, что игрок не играет сам с собой
   if (battle.initiatorId.toString() === ctx.from.id.toString()) {
     return ctx.reply("⚠️ You cannot accept your own battle!");
   }
@@ -318,14 +347,12 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     opponentUsername: ctx.from.username || ctx.from.first_name 
   });
 
-  // Если батл без приза — сразу стартуем
   if (battle.prizePool === 0) {
     await updateBattle(db, battleId, { status: "paid_by_both" });
     await startBattle(bot, db, battleId, battle.chatId);
     return;
   }
 
-  // Батл с призом — проверяем балансы и показываем кнопки оплаты
   const needed = battle.prizePool / 2;
   
   const initiatorRef = doc(db, "users", battle.initiatorId.toString());
@@ -343,7 +370,6 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     ]
   };
 
-  // Сообщение оппоненту
   await ctx.reply(
     `🎮 You joined the battle vs @${battle.initiatorUsername || "Initiator"}!\n` +
     `💰 Entry fee: ${needed} ⭐\n` +
@@ -355,7 +381,6 @@ bot.action(/^accept_battle_(.+)$/, async (ctx) => {
     await bot.showWalletTopupOptions({ chat: { id: ctx.from.id }, from: ctx.from });
   }
 
-  // Уведомление инициатору
   try {
     await bot.telegram.sendMessage(
       battle.initiatorId,
@@ -388,8 +413,6 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   }
 
   const needed = battle.prizePool / 2;
-  
-  // 🔒 Сравниваем ID как строки
   const userIdStr = ctx.from.id.toString();
   const isInitiator = userIdStr === battle.initiatorId.toString();
   const isOpponent = userIdStr === battle.opponentId?.toString();
@@ -398,7 +421,6 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
     return ctx.reply("⚠️ You are not part of this battle.");
   }
 
-  // 🔒 Проверяем, не оплатил ли уже этот игрок
   if (isInitiator && battle.initiatorPaid) {
     return ctx.reply("✅ You have already paid for this battle!");
   }
@@ -407,8 +429,6 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
   }
 
   const role = isInitiator ? "initiator" : "opponent";
-
-  // 🔒 Атомарное списание через транзакцию
   const result = await bot.deductFromWallet(ctx.from.id, needed, battleId, role);
 
   if (!result.success) {
@@ -429,7 +449,6 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
     return;
   }
 
-  // Обновляем статус оплаты
   const updateData = {};
   if (isInitiator) updateData.initiatorPaid = true;
   if (isOpponent) updateData.opponentPaid = true;
@@ -441,13 +460,11 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
     `💰 Current balance: ${result.newWallet} ⭐`
   );
 
-  // Проверяем, оплатили ли оба
   const updatedBattle = await getBattleById(db, battleId);
   
   if (updatedBattle.initiatorPaid && updatedBattle.opponentPaid) {
     await updateBattle(db, battleId, { status: "paid_by_both" });
     
-    // 🔒 Отправляем уведомление обоим игрокам
     const chatId = updatedBattle.chatId;
     if (chatId) {
       try {
@@ -461,10 +478,8 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
       }
     }
     
-    // Стартуем батл
     await startBattle(bot, db, battleId, updatedBattle.chatId);
   } else {
-    // Уведомляем, что ждём второго игрока
     const waitingFor = updatedBattle.initiatorPaid ? "opponent" : "initiator";
     const waitingUsername = waitingFor === "opponent" 
       ? updatedBattle.opponentUsername 
@@ -473,6 +488,72 @@ bot.action(/^pay_wallet_(.+)$/, async (ctx) => {
     await ctx.reply(
       `⏳ Waiting for @${waitingUsername} to pay their entry fee...`
     );
+  }
+});
+
+// === 🎰 Mini-App Slot Machine Handlers ===
+
+// Callback action (альтернативный метод, если нужен)
+bot.action(/^buy_miniapp_slots_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  try {
+    const telegramId = ctx.match[1];
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
+
+    await ctx.replyWithInvoice({
+      title: `Buy ${MINIAPP_SPINS_PER_PURCHASE} Slot Spins`,
+      description: `Get ${MINIAPP_SPINS_PER_PURCHASE} spins for the Mini-App Slot Machine`,
+      payload,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ 
+        label: `${MINIAPP_SPINS_PER_PURCHASE} Spins`, 
+        amount: MINIAPP_SLOT_PRICE 
+      }],
+      start_parameter: "miniapp_slot"
+    });
+    
+    console.log(`🎰 Mini-App slot invoice created via callback for user ${telegramId}`);
+  } catch (err) {
+    console.error("Mini-App slot invoice error:", err);
+    return ctx.reply("⚠️ Error creating invoice. Please try again or contact @Deviola_programmer");
+  }
+});
+
+// REST API endpoint для создания инвойса из Mini-App
+app.post("/create-slot-invoice", async (req, res) => {
+  try {
+    const { telegramId } = req.body;
+    
+    if (!telegramId) {
+      return res.status(400).json({ error: "Missing telegramId" });
+    }
+
+    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
+
+    const result = await bot.telegram.sendInvoice(
+      telegramId,
+      `Buy ${MINIAPP_SPINS_PER_PURCHASE} Slot Spins`,
+      `Get ${MINIAPP_SPINS_PER_PURCHASE} spins for the Slot Machine`,
+      payload,
+      "",
+      "XTR",
+      [{ label: `${MINIAPP_SPINS_PER_PURCHASE} Spins`, amount: MINIAPP_SLOT_PRICE }],
+      { start_parameter: "miniapp_slot" }
+    );
+
+    console.log(`🎰 Mini-App slot invoice created via API for user ${telegramId}`);
+
+    res.json({ 
+      success: true, 
+      message: "Invoice sent",
+      invoiceMessageId: result.message_id
+    });
+
+  } catch (error) {
+    console.error("Error creating slot invoice:", error);
+    res.status(500).json({ error: "Failed to create invoice" });
   }
 });
 
@@ -487,121 +568,9 @@ bot.catch((err, ctx) => {
   } catch {}
 });
 
-
-// === Mini-App Slot Machine Invoice Handler ===
-bot.action(/^buy_miniapp_slots_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  
-  try {
-    const telegramId = ctx.match[1];
-    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
-    const MINIAPP_SLOT_PRICE = 1; // 1 Star для тестирования (потом 20)
-    const SPINS_COUNT = 3;
-
-    await ctx.replyWithInvoice({
-      title: `Buy ${SPINS_COUNT} Slot Spins`,
-      description: `Get ${SPINS_COUNT} spins for the Mini-App Slot Machine`,
-      payload,
-      provider_token: "", // Для Telegram Stars пустой
-      currency: "XTR",
-      prices: [{ 
-        label: `${SPINS_COUNT} Spins`, 
-        amount: MINIAPP_SLOT_PRICE 
-      }],
-      start_parameter: "miniapp_slot"
-    });
-  } catch (err) {
-    console.error("Mini-App slot invoice error:", err);
-    return ctx.reply("⚠️ Error creating invoice. Please try again or contact @Deviola_programmer");
-  }
-});
-
-// === Webhook endpoint для создания инвойса из Mini-App ===
-app.post("/create-slot-invoice", async (req, res) => {
-  try {
-    const { telegramId } = req.body;
-    
-    if (!telegramId) {
-      return res.status(400).json({ error: "Missing telegramId" });
-    }
-
-    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
-    const MINIAPP_SLOT_PRICE = 1; // 1 Star для тестирования
-    const SPINS_COUNT = 3;
-
-    // Создаём инвойс
-    const invoice = {
-      title: `Buy ${SPINS_COUNT} Slot Spins`,
-      description: `Get ${SPINS_COUNT} spins for the Slot Machine`,
-      payload,
-      provider_token: "",
-      currency: "XTR",
-      prices: [{ 
-        label: `${SPINS_COUNT} Spins`, 
-        amount: MINIAPP_SLOT_PRICE 
-      }],
-      start_parameter: "miniapp_slot"
-    };
-
-    // Отправляем инвойс пользователю
-    const result = await bot.telegram.sendInvoice(
-      telegramId,
-      invoice.title,
-      invoice.description,
-      invoice.payload,
-      invoice.provider_token,
-      invoice.currency,
-      invoice.prices,
-      { start_parameter: invoice.start_parameter }
-    );
-
-    res.json({ 
-      success: true, 
-      message: "Invoice sent",
-      invoiceMessageId: result.message_id
-    });
-
-  } catch (error) {
-    console.error("Error creating slot invoice:", error);
-    res.status(500).json({ error: "Failed to create invoice" });
-  }
-});
-
-// === Альтернатива: Deep link для инвойса ===
-// Пользователь переходит по ссылке t.me/bot?start=buy_slots
-bot.command("start", async (ctx) => {
-  const startParam = ctx.message.text.split(" ")[1];
-  
-  // Если параметр buy_slots - создаём инвойс
-  if (startParam === "buy_slots") {
-    const telegramId = ctx.from.id.toString();
-    const payload = `slot_purchase_${telegramId}_${Date.now()}`;
-    const MINIAPP_SLOT_PRICE = 1;
-    const SPINS_COUNT = 3;
-
-    try {
-      await ctx.replyWithInvoice({
-        title: `Buy ${SPINS_COUNT} Slot Spins`,
-        description: `Get ${SPINS_COUNT} spins for the Slot Machine`,
-        payload,
-        provider_token: "",
-        currency: "XTR",
-        prices: [{ label: `${SPINS_COUNT} Spins`, amount: MINIAPP_SLOT_PRICE }],
-        start_parameter: "miniapp_slot"
-      });
-      return;
-    } catch (err) {
-      console.error("Error creating invoice:", err);
-      return ctx.reply("⚠️ Error creating invoice. Please try again.");
-    }
-  }
-
-  });
-
-// === Ping route ===
+// === Routes ===
 app.get("/", (req, res) => res.send("✅ Bot is running"));
 
-// === Health check ===
 app.get("/health", (req, res) => {
   res.json({ 
     status: "ok", 
@@ -613,6 +582,7 @@ app.get("/health", (req, res) => {
 // === Start server & bot ===
 app.listen(port, async () => {
   console.log(`🚀 Server listening on port ${port}`);
+  console.log(`🎰 Mini-App Slot: ${MINIAPP_SLOT_PRICE} ⭐ for ${MINIAPP_SPINS_PER_PURCHASE} spins`);
   
   try {
     await bot.launch();

@@ -1,6 +1,6 @@
-// paymentsHandler.js - UNIFIED PAYMENT HANDLER
-// Обрабатывает ВСЕ платежи: wallet_topup, buy_ticket, pvp_*
-import { doc, getDoc, setDoc, updateDoc, runTransaction, collection } from "firebase/firestore";
+// paymentsHandler.js - UPDATED WITH MINIAPP SLOT SUPPORT
+// Обрабатывает ВСЕ платежи: wallet_topup, buy_ticket, pvp_*, slot_purchase (Mini-App)
+import { doc, getDoc, setDoc, updateDoc, runTransaction, increment } from "firebase/firestore";
 import { updateBattle, getBattleById } from "./pvp/pvpFirebase.js";
 
 /**
@@ -33,7 +33,7 @@ export function initUnifiedPayments({ bot, db, PRICE_STARS, TICKETS_PER_PURCHASE
         return;
       }
 
-      // === 2️⃣ SLOT TICKETS ===
+      // === 2️⃣ SLOT TICKETS (for bot-based slot game) ===
       if (payload.startsWith("buy_ticket:")) {
         await handleSlotTicketPurchase(
           bot, 
@@ -48,7 +48,13 @@ export function initUnifiedPayments({ bot, db, PRICE_STARS, TICKETS_PER_PURCHASE
         return;
       }
 
-      // === 3️⃣ PVP BATTLE ===
+      // === 3️⃣ MINI-APP SLOT SPINS ===
+      if (payload.startsWith("slot_purchase_")) {
+        await handleMiniAppSlotPurchase(bot, db, payload, payerId, payment, ctx);
+        return;
+      }
+
+      // === 4️⃣ PVP BATTLE ===
       if (payload.startsWith("pvp_")) {
         await handlePvpPayment(bot, db, payload, payerId, ctx);
         return;
@@ -135,7 +141,7 @@ async function handleWalletTopup(bot, db, payload, userId, payment, ctx) {
 }
 
 /**
- * 🎰 Обработка покупки слот-билетов
+ * 🎰 Обработка покупки слот-билетов (для бот-игры)
  */
 async function handleSlotTicketPurchase(bot, db, payload, userId, chatId, fromUser, PRICE_STARS, TICKETS_PER_PURCHASE) {
   const userRef = doc(db, "users", userId);
@@ -169,6 +175,92 @@ async function handleSlotTicketPurchase(bot, db, payload, userId, chatId, fromUs
   );
 
   console.log(`✅ Slot tickets for ${userId}: +${TICKETS_PER_PURCHASE} tickets`);
+}
+
+/**
+ * 🎰 Обработка покупки спинов для Mini-App Slot Machine
+ * Payload format: slot_purchase_<telegramId>_<timestamp>
+ */
+async function handleMiniAppSlotPurchase(bot, db, payload, userId, payment, ctx) {
+  try {
+    // Парсим payload
+    const parts = payload.split("_");
+    const telegramId = parts[2]; // slot_purchase_<ID>_<timestamp>
+    const timestamp = parts[3];
+    const amount = payment.total_amount; // Количество звёзд (1 или 20)
+
+    console.log(`🎰 Mini-App Slot purchase: ${telegramId}, amount: ${amount} ⭐`);
+
+    // Определяем количество спинов (3 спина за покупку)
+    const SPINS_TO_ADD = 3;
+
+    // 🔒 Защита от дублирования
+    const transactionId = `miniapp_slot_${telegramId}_${timestamp}`;
+    const transactionRef = doc(db, "transactions", transactionId);
+    const transactionSnap = await getDoc(transactionRef);
+    
+    if (transactionSnap.exists()) {
+      console.warn(`⚠️ Duplicate Mini-App slot purchase detected: ${transactionId}`);
+      return ctx.reply("⚠️ This purchase was already processed.");
+    }
+
+    const userRef = doc(db, "users", telegramId);
+
+    // 🔒 Атомарное обновление через транзакцию
+    await runTransaction(db, async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      
+      if (!userSnap.exists()) {
+        // Создаём нового пользователя (маловероятно, но на всякий случай)
+        transaction.set(userRef, {
+          username: ctx.from.username || `User-${telegramId}`,
+          slotSpins: SPINS_TO_ADD,
+          slotTotalSpins: 0,
+          slotWins: 0,
+          slotTotalEarned: 0,
+          slotJackpots: 0,
+          slotBigWins: 0,
+          createdAt: Date.now(),
+        });
+      } else {
+        // Обновляем существующего пользователя
+        const currentSpins = userSnap.data().slotSpins || 0;
+        transaction.update(userRef, {
+          slotSpins: currentSpins + SPINS_TO_ADD
+        });
+      }
+
+      // 📝 Логируем транзакцию покупки
+      transaction.set(transactionRef, {
+        type: "miniapp_slot_purchase",
+        userId: telegramId,
+        spinsAdded: SPINS_TO_ADD,
+        amountPaid: amount,
+        timestamp: Date.now(),
+        telegramChargeId: payment.telegram_payment_charge_id || null,
+        providerChargeId: payment.provider_payment_charge_id || null,
+        status: "completed"
+      });
+    });
+
+    console.log(`✅ Mini-App Slot purchase completed for ${telegramId}: +${SPINS_TO_ADD} spins`);
+
+    // Отправляем подтверждение пользователю
+    await bot.telegram.sendMessage(
+      telegramId,
+      `✅ Purchase successful!\n🎰 You received ${SPINS_TO_ADD} spins for Slot Machine!\n💰 Spent: ${amount} ⭐\n\n🎮 Return to the Mini-App to play!`
+    );
+
+  } catch (error) {
+    console.error("❌ Error handling Mini-App slot purchase:", error);
+    
+    try {
+      await ctx.reply(
+        "⚠️ Purchase processing error. Please contact support.\n" +
+        "💬 @Deviola_programmer"
+      );
+    } catch {}
+  }
 }
 
 /**

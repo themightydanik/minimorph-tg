@@ -1,116 +1,122 @@
-// pvp/pvpWalletPayments.js (CLEANED - только UI, БЕЗ обработчиков платежей)
-import { doc, runTransaction, collection } from "firebase/firestore";
+// pvp/pvpWalletPayments.js - Wallet management for PvP
+import { doc, getDoc, updateDoc, runTransaction } from "firebase/firestore";
+import { getBattleById, updateBattle } from "./pvpFirebase.js";
 
 /**
- * 💳 Инициализация UI для кошелька (БЕЗ обработчиков платежей - они в paymentsHandler.js)
+ * Инициализация wallet-платежей для PvP
  */
 export function initPvpWalletPayments({ bot, db }) {
-  const walletAmounts = [1, 125, 250]; // пакеты Stars
-
-  // --- 🧾 Показать пользователю варианты пополнения ---
-  async function showWalletTopupOptions(ctx) {
-    const chatId = ctx.chat?.id || ctx.from?.id;
-    if (!chatId) return console.error("No chat id for wallet topup");
-
-    const keyboard = {
-      inline_keyboard: walletAmounts.map(amount => [
-        {
-          text: `💳 Add ${amount} Star${amount > 1 ? "s" : ""}`,
-          callback_data: `wallet_add_${amount}`,
-        },
-      ]),
-    };
-
-    try {
-      await bot.telegram.sendMessage(
-        chatId,
-        "💡 Choose how many Stars to add to your Wallet:",
-        { reply_markup: keyboard }
-      );
-    } catch (err) {
-      console.error("Error showing wallet topup options:", err);
-    }
-  }
-
-  bot.showWalletTopupOptions = showWalletTopupOptions;
-
-  // --- 💰 Обработка выбора пакета Stars (создание инвойса) ---
-  bot.action(/^wallet_add_(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-
-    const amount = parseInt(ctx.match[1], 10);
-    const telegramId = ctx.from.id.toString();
-
-    // 🔒 Уникальный payload с timestamp для предотвращения дублей
-    const timestamp = Date.now();
-    const payload = `wallet_topup:${telegramId}:${amount}:${timestamp}`;
-    const title = `${amount} Stars for Wallet`;
-    const description = `Top up your internal Wallet with ${amount} Stars.`;
-    const startParameter = `wallet_topup_${timestamp}`;
-
-    const prices = [{ label: `${amount} Stars`, amount }];
-
-    try {
-      await ctx.replyWithInvoice({
-        title,
-        description,
-        payload,
-        provider_token: "", // ⭐ Stars → оставляем пустым
-        currency: "XTR",
-        prices,
-        start_parameter: startParameter,
-      });
-    } catch (err) {
-      console.error("Wallet invoice error:", err);
-      await ctx.reply("⚠️ Error creating invoice. Contact admin.");
-    }
-  });
-
+  
   /**
-   * 💳 Атомарное списание с wallet для PvP (с защитой от race conditions)
+   * Списывает средства с кошелька пользователя
    */
-  bot.deductFromWallet = async function(userId, amount, battleId, role) {
-    const userRef = doc(db, "users", userId.toString());
-    
+  bot.deductFromWallet = async (userId, amount, battleId, role) => {
+    const userIdStr = userId.toString();
+    const userRef = doc(db, "users", userIdStr);
+
     try {
       const result = await runTransaction(db, async (transaction) => {
         const userSnap = await transaction.get(userRef);
-        
+
         if (!userSnap.exists()) {
-          throw new Error("User not found");
+          return { success: false, error: "User not found" };
         }
 
-        const currentWallet = userSnap.data().wallet || 0;
-        
+        const userData = userSnap.data();
+        const currentWallet = userData.wallet || 0;
+
         if (currentWallet < amount) {
-          throw new Error("Insufficient funds");
+          return { success: false, error: "Insufficient funds" };
         }
 
         const newWallet = currentWallet - amount;
-        transaction.update(userRef, { 
+
+        transaction.update(userRef, {
           wallet: newWallet,
           lastWalletUpdate: Date.now()
         });
 
-        // 📝 Логируем списание
-        const transactionRef = doc(collection(db, "transactions"));
+        // Логируем транзакцию
+        const transactionId = `pvp_${battleId}_${role}_${Date.now()}`;
+        const transactionRef = doc(db, "transactions", transactionId);
+        
         transaction.set(transactionRef, {
-          type: "pvp_deduct",
-          userId: userId.toString(),
-          amount: -amount,
+          type: "pvp_entry",
+          userId: userIdStr,
           battleId,
           role,
+          amount: -amount,
           timestamp: Date.now(),
           status: "completed"
         });
 
-        return newWallet;
+        return { success: true, newWallet };
       });
 
-      return { success: true, newWallet: result };
+      return result;
     } catch (err) {
-      console.error(`❌ Wallet deduction failed for ${userId}:`, err);
-      return { success: false, error: err.message };
+      console.error("Deduct from wallet error:", err);
+      return { success: false, error: "Transaction failed" };
     }
   };
+
+  /**
+   * Показывает опции пополнения кошелька
+   */
+  bot.showWalletTopupOptions = async (ctx) => {
+    const userId = ctx.from.id.toString();
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: "💎 100 ⭐", callback_data: `topup_100_${userId}` },
+          { text: "💎 250 ⭐", callback_data: `topup_250_${userId}` }
+        ],
+        [
+          { text: "💎 500 ⭐", callback_data: `topup_500_${userId}` },
+          { text: "💎 1000 ⭐", callback_data: `topup_1000_${userId}` }
+        ]
+      ]
+    };
+
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    const currentWallet = (userSnap.exists() && userSnap.data().wallet) || 0;
+
+    await bot.telegram.sendMessage(
+      ctx.chat?.id || ctx.from.id,
+      `💰 Your Wallet: ${currentWallet} ⭐\n\n` +
+      `Choose amount to top up:`,
+      { reply_markup: keyboard }
+    );
+  };
+
+  // === Обработка кнопок пополнения ===
+  bot.action(/^topup_(\d+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    
+    const amount = parseInt(ctx.match[1]);
+    const userId = ctx.match[2];
+
+    if (userId !== ctx.from.id.toString()) {
+      return ctx.reply("⚠️ This invoice is not for you.");
+    }
+
+    try {
+      const payload = `wallet_topup:${userId}:${amount}:${Date.now()}`;
+
+      await ctx.replyWithInvoice({
+        title: `Top Up Wallet`,
+        description: `Add ${amount} ⭐ to your wallet`,
+        payload,
+        provider_token: "",
+        currency: "XTR",
+        prices: [{ label: `${amount} Stars`, amount }],
+        start_parameter: "wallet_topup"
+      });
+    } catch (err) {
+      console.error("Wallet topup invoice error:", err);
+      return ctx.reply("⚠️ Error creating invoice. Please try again.");
+    }
+  });
 }

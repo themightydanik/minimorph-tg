@@ -1,282 +1,326 @@
-// slot.js (v3) — БЕЗ обработчиков платежей (они перенесены в paymentsHandler.js)
-// Только игровая логика + admin команды
-
+// slot.js - Slot Machine Module for Bot & Mini-App
 import express from "express";
-import {
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  collection,
-  query,
-  where,
-} from "firebase/firestore";
+import { doc, getDoc, updateDoc, increment } from "firebase/firestore";
+import { db, getUserData, createUser } from "./firebase.js";
 
-function initSlotModule({
-  bot,
-  db,
-  ADMIN_ID,
-  ADMIN_SECRET,
-  PRICE_STARS = 20,
-  TICKETS_PER_PURCHASE = 3,
-  JACKPOT_REWARD = 100,
-  PAIR_REWARD = 7,
-  NEWBIE_SPINS = 9,
-  NEWBIE_MULTIPLIER = 1.3,
-}) {
-  const router = express.Router();
+const router = express.Router();
 
-  // --- HELPERS ---
-  const normalizeId = (id) => id?.toString().replace(/^_+/, "") || null;
+/**
+ * Initialize slot machine module
+ * Supports TWO systems:
+ * 1. Bot emoji 🎰 → uses slotTickets (bot-only)
+ * 2. Mini-App UI → uses slotSpins (shared)
+ */
+export default function initSlotModule(bot, config) {
+  
+  const {
+    SLOT_PRICE_STARS = 20,
+    SLOT_TICKETS_PER_PURCHASE = 3,
+    SLOT_JACKPOT_REWARD = 100,
+    SLOT_PAIR_REWARD = 8,
+    SLOT_NEWBIE_SPINS = 9,
+    SLOT_NEWBIE_MULTIPLIER = 1.3
+  } = config;
+  
+  // ========================================
+  // BOT: Emoji 🎰 Handler (uses slotTickets)
+  // ========================================
+  bot.on("message", async (ctx) => {
+    if (!ctx.message?.dice || ctx.message.dice.emoji !== "🎰") return;
 
-  const getUserById = async (telegramId) => {
-    if (!telegramId) return null;
-    const cleanId = normalizeId(telegramId);
-    const ref = doc(db, "users", cleanId);
-    const snap = await getDoc(ref);
-    return snap.exists() ? { ref, data: snap.data(), id: cleanId } : null;
-  };
-
-  const getUserByUsername = async (username) => {
-    if (!username) return null;
-    const usersCol = collection(db, "users");
-    const q = query(usersCol, where("username", "==", username));
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    const docSnap = snap.docs[0];
-    const id = docSnap.id;
-    return { ref: doc(db, "users", id), data: docSnap.data(), id };
-  };
-
-  const ensureSlotFields = async (userRef, currentData) => {
-    const toSet = {};
-    if (currentData.slotTickets === undefined) toSet.slotTickets = 0;
-    if (currentData.slotSpentStars === undefined) toSet.slotSpentStars = 0;
-    if (currentData.slotEarnedStars === undefined) toSet.slotEarnedStars = 0;
-    if (currentData.slotWins === undefined) toSet.slotWins = 0;
-    if (currentData.slotSpinsTotal === undefined) toSet.slotSpinsTotal = 0;
-    if (Object.keys(toSet).length > 0) {
-      await updateDoc(userRef, toSet);
-      return { ...currentData, ...toSet };
-    }
-    return currentData;
-  };
-
-  // --- BOT COMMANDS ---
-
-  // /slot - info
-  bot.command("slot", async (ctx) => {
     const telegramId = ctx.from.id.toString();
-    const user = await getUserById(telegramId);
-    if (!user) {
-      return ctx.reply("User not found. Run /start.");
-    }
-    const data = await ensureSlotFields(user.ref, user.data);
-    const tickets = data.slotTickets || 0;
-    const msg = `🎰 Slot Machine\n\nTicket balance: ${tickets}\nPrice: ${PRICE_STARS} ⭐ per purchase (you get ${TICKETS_PER_PURCHASE} ticket(s)).\n\nPlay: Send emoji to chat 🎰 — Telegram will spin the slot.`;
-    await ctx.reply(msg);
-  });
-
-  // /buyticket - отправим invoice для оплаты Stars
-  bot.command("buyticket", async (ctx) => {
+    
     try {
-      const telegramId = ctx.from.id.toString();
-      const payload = `buy_ticket:${telegramId}:${Date.now()}`;
-
-      await ctx.replyWithInvoice({
-        title: `Buy ${TICKETS_PER_PURCHASE} slot ticket(s)`,
-        description: `${TICKETS_PER_PURCHASE} spins for the slot machine — cost ${PRICE_STARS} ⭐`,
-        payload,
-        provider_token: "", // Stars
-        currency: "XTR",
-        prices: [{ label: `${TICKETS_PER_PURCHASE} slot tickets`, amount: PRICE_STARS }],
-        start_parameter: "buy_slot"
-      });
-    } catch (err) {
-      console.error("buyticket error:", err);
-      return ctx.reply("Error creating invoice. Contact the admin.");
-    }
-  });
-
-  // Admin: /grantpass <@username|telegramId> <amount>
-  bot.command("grantpass", async (ctx) => {
-    const from = ctx.from.id.toString();
-    if (from !== ADMIN_ID) return ctx.reply("Only admin can use this command.");
-    const args = ctx.message.text.split(/\s+/).slice(1);
-    if (!args[0] || !args[1]) return ctx.reply("Usage: /grantpass @username|telegramId <amount>");
-    const target = args[0].replace(/^@/, "");
-    const amount = parseInt(args[1], 10) || 0;
-    if (amount <= 0) return ctx.reply("Incorrect quantity.");
-    try {
-      let user = null;
-      if (/^\d+$/.test(target)) {
-        user = await getUserById(target);
-        if (!user) return ctx.reply("User with this ID not found.");
-        await updateDoc(user.ref, { slotTickets: (user.data.slotTickets || 0) + amount });
-        return ctx.reply(`✅ Issued ${amount} tickets to the user ${target}`);
-      } else {
-        const u = await getUserByUsername(target);
-        if (!u) return ctx.reply("User with this username not found.");
-        await updateDoc(u.ref, { slotTickets: (u.data.slotTickets || 0) + amount });
-        return ctx.reply(`✅ Issued ${amount} tickets to the user @${target}`);
-      }
-    } catch (err) {
-      console.error("grantpass error:", err);
-      return ctx.reply("Error issuing tickets.");
-    }
-  });
-
-  // Admin: /freespin - do a demo spin (no ticket consumed, no payout)
-  bot.command("freespin", async (ctx) => {
-    const from = ctx.from.id.toString();
-    if (from !== ADMIN_ID) return ctx.reply("Only admin can use this command.");
-    const val = Math.floor(Math.random() * 64) + 1;
-    let outcome = "MISS";
-    let reward = 0;
-
-    if (val === 64) {
-      outcome = "JACKPOT";
-      reward = JACKPOT_REWARD;
-    } else if (val >= 33 && val <= 63) {
-      outcome = "PAIR";
-      reward = PAIR_REWARD;
-    } else {
-      outcome = "MISS";
-    }
-    return ctx.reply(`🎰 Demo spin\nValue: ${val}\nOutcome: ${outcome}\nReward (simulated): ${reward} ⭐\n(This is a demo, no real payments will be made.)`);
-  });
-
-  // --- Handle slot dice 🎰 only ---
-  bot.on("dice", async (ctx) => {
-    try {
-      const msg = ctx.message;
-      if (msg.dice.emoji !== "🎰") return;
-
-      const telegramId = msg.from.id.toString();
-      const user = await getUserById(telegramId);
-      if (!user) return ctx.reply("❗ You are not registered. Run /start.");
-
-      const data = await ensureSlotFields(user.ref, user.data);
-
-      if ((data.slotTickets || 0) <= 0) {
-        return ctx.reply("You don't have any tickets. Buy /buyticket or ask admin for some.");
-      }
-
-      const val = msg.dice.value;
-      const spinsTotal = data.slotSpinsTotal || 0;
-      const isNewbie = spinsTotal < NEWBIE_SPINS;
-      const basePairCount = 15;
-      const pairCount = Math.min(63, Math.max(1, Math.floor(basePairCount * (isNewbie ? NEWBIE_MULTIPLIER : 1))));
-      const pairThreshold = 64 - pairCount;
-
-      let outcome = "MISS";
-      let reward = 0;
-      if (val === 64) {
-        outcome = "JACKPOT";
-        reward = JACKPOT_REWARD;
-      } else if (val > pairThreshold) {
-        outcome = "PAIR";
-        reward = PAIR_REWARD;
-      }
-
-      await updateDoc(user.ref, {
-        slotTickets: (data.slotTickets || 0) - 1,
-        slotSpinsTotal: (data.slotSpinsTotal || 0) + 1,
-        slotWins: (data.slotWins || 0) + (reward > 0 ? 1 : 0),
-        slotEarnedStars: (data.slotEarnedStars || 0) + reward,
-      });
-
-      let replyText = `🎰 Result: ${outcome}\n`;
-      if (reward > 0) {
-        if (outcome === "JACKPOT") {
-          replyText = `🎰 Result: JACKPOT!!! 🍒 🍒 🍒\n💎 JACKPOT!!! 💎\nUnbelievable! You've unlocked the top reward — ${reward} ⭐!\n🚀 The stars align in your favor!`;
-        } else {
-          replyText = `🎰 Result: ${outcome}\n💰 Congratulations, you won ${reward} 💎 💎 🪐!\n💵 Tap "Withdraw Stars" to receive your winnings.`;
-        }
-
-        await ctx.reply(replyText);
-
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_ID,
-            `🎯 User @${msg.from.username || msg.from.id} won ${reward} ⭐ (${outcome})\nAdded to pending payout.`
-          );
-        } catch (notifyErr) {
-          console.error("Failed to notify admin:", notifyErr);
-        }
-      } else {
-        replyText += `😕 Sorry, didn't win anything. Try again! 🍋 💀 🍉`;
-        await ctx.reply(replyText);
-      }
-
-    } catch (err) {
-      console.error("Error in dice handler:", err);
-    }
-  });
-
-  // --- ADMIN EXPRESS ROUTES ---
-
-  // Grant tickets via HTTP POST
-  router.post("/admin/grant", async (req, res) => {
-    try {
-      const secret = req.headers["x-admin-secret"];
-      if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return res.status(403).send("Forbidden");
-      const { username, telegramId, amount } = req.body;
-      const qty = parseInt(amount, 10) || 0;
-      if (!qty || qty <= 0) return res.status(400).send("Invalid amount");
-      if (telegramId) {
-        const user = await getUserById(telegramId);
-        if (!user) return res.status(404).send("User not found");
-        await updateDoc(user.ref, { slotTickets: (user.data.slotTickets || 0) + qty });
-        return res.send(`Granted ${qty} tickets to ${telegramId}`);
-      } else if (username) {
-        const uname = username.replace(/^@/, "");
-        const user = await getUserByUsername(uname);
-        if (!user) return res.status(404).send("User not found");
-        await updateDoc(user.ref, { slotTickets: (user.data.slotTickets || 0) + qty });
-        return res.send(`Granted ${qty} tickets to @${uname}`);
-      } else {
-        return res.status(400).send("Provide username or telegramId");
-      }
-    } catch (err) {
-      console.error("admin grant error:", err);
-      res.status(500).send("Server error");
-    }
-  });
-
-  // Admin endpoint to perform payout via Telegram API (manual fallback)
-  router.post("/admin/payout-stars", async (req, res) => {
-    try {
-      const secret = req.headers["x-admin-secret"];
-      if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return res.status(403).send("Forbidden");
-      const { telegramId, amount } = req.body;
-      const amt = parseInt(amount, 10) || 0;
-      if (!telegramId || !amt || amt <= 0) return res.status(400).send("Invalid data");
-
-      try {
-        await bot.telegram.callApi("payments.sendStarsForm", {
-          user_id: parseInt(telegramId, 10),
-          amount: amt,
+      let userData = await getUserData(telegramId);
+      
+      // Create new user if doesn't exist
+      if (!userData) {
+        const username = ctx.from.username || ctx.from.first_name || `User-${telegramId}`;
+        userData = await createUser(telegramId, username);
+        
+        // Give newbie spins as slotTickets
+        const userRef = doc(db, "users", telegramId);
+        await updateDoc(userRef, {
+          slotTickets: SLOT_NEWBIE_SPINS
         });
-        const user = await getUserById(telegramId);
-        if (user) {
-          await updateDoc(user.ref, {
-            pendingPayoutStars: (user.data.pendingPayoutStars || 0) - amt,
-          });
-        }
-        return res.send(`Payout ${amt} stars to ${telegramId} attempted`);
-      } catch (callErr) {
-        console.error("payout API error:", callErr);
-        return res.status(500).send("Payout API call failed; check logs and Telegram config");
+        
+        await ctx.reply(
+          `🎉 Welcome bonus: ${SLOT_NEWBIE_SPINS} free tickets!\n` +
+          `🎰 Your first ${SLOT_NEWBIE_SPINS} wins will be multiplied by ${SLOT_NEWBIE_MULTIPLIER}x!\n\n` +
+          `Send the 🎰 emoji again to spin!`
+        );
+        
+        return;
       }
+
+      const tickets = userData.slotTickets || 0;
+
+      if (tickets <= 0) {
+        return ctx.reply(
+          `❌ You have no tickets left!\n\n` +
+          `💰 Buy more for ${SLOT_PRICE_STARS}⭐ (${SLOT_TICKETS_PER_PURCHASE} tickets)\n` +
+          `🎰 Or use the Mini-App for more spins!`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "💳 Buy Tickets", callback_data: "buy_ticket" }]
+              ]
+            }
+          }
+        );
+      }
+
+      // Get slot result
+      const slotValue = ctx.message.dice.value;
+      const slotResult = getSlotResult(slotValue);
+
+      // Check if newbie spin
+      const totalSpins = userData.slotTotalSpins || 0;
+      const isNewbieSpin = totalSpins < SLOT_NEWBIE_SPINS;
+      const multiplier = isNewbieSpin ? SLOT_NEWBIE_MULTIPLIER : 1.0;
+
+      let reward = 0;
+      let message = "";
+
+      if (slotResult.type === "jackpot") {
+        reward = Math.floor(SLOT_JACKPOT_REWARD * multiplier);
+        message = `🎰 JACKPOT! 🎰\n💰 You won ${reward}⭐!`;
+        
+        await updateDoc(doc(db, "users", telegramId), {
+          slotJackpots: increment(1)
+        });
+      } else if (slotResult.type === "pair") {
+        reward = Math.floor(SLOT_PAIR_REWARD * multiplier);
+        message = `🎉 Pair! You won ${reward}⭐!`;
+      } else {
+        message = `😔 No luck this time!`;
+      }
+
+      // Update statistics (SHARED fields)
+      const userRef = doc(db, "users", telegramId);
+      await updateDoc(userRef, {
+        // Bot-specific
+        slotTickets: increment(-1),
+        slotEarnedStars: increment(reward),
+        
+        // SHARED statistics (bot + miniapp)
+        slotTotalSpins: increment(1),
+        slotWins: reward > 0 ? increment(1) : userData.slotWins || 0,
+        slotTotalEarned: increment(reward)
+      });
+
+      if (isNewbieSpin) {
+        message += `\n✨ Newbie bonus active! (${SLOT_NEWBIE_SPINS - totalSpins - 1} spins left)`;
+      }
+
+      message += `\n\n🎟️ Tickets left: ${tickets - 1}`;
+
+      await ctx.reply(message, {
+        reply_markup: tickets - 1 === 0 ? {
+          inline_keyboard: [
+            [{ text: "💳 Buy More Tickets", callback_data: "buy_ticket" }]
+          ]
+        } : undefined
+      });
+
+      if (reward > 0) {
+        await ctx.reply(
+          `💰 Total winnings: ${(userData.slotEarnedStars || 0) + reward}⭐\n` +
+          `💡 Minimum withdrawal: 100⭐`
+        );
+      }
+
     } catch (err) {
-      console.error("admin payout error:", err);
-      res.status(500).send("Server error");
+      console.error("Slot spin error:", err);
+      await ctx.reply("⚠️ Error processing spin. Please try again.");
+    }
+  });
+
+  // ========================================
+  // REST API ENDPOINTS
+  // ========================================
+
+  /**
+   * GET /api/slot/stats/:telegramId
+   * Returns slot statistics (shared between bot and miniapp)
+   */
+  router.get("/stats/:telegramId", async (req, res) => {
+    try {
+      const { telegramId } = req.params;
+      const userData = await getUserData(telegramId);
+
+      if (!userData) {
+        return res.json({
+          slotSpins: 0,
+          slotTickets: 0,
+          slotTotalSpins: 0,
+          slotWins: 0,
+          slotTotalEarned: 0,
+          slotJackpots: 0,
+          slotBigWins: 0,
+          slotEarnedStars: 0
+        });
+      }
+
+      res.json({
+        // Mini-App field
+        slotSpins: userData.slotSpins || 0,
+        
+        // Bot field
+        slotTickets: userData.slotTickets || 0,
+        
+        // SHARED statistics
+        slotTotalSpins: userData.slotTotalSpins || 0,
+        slotWins: userData.slotWins || 0,
+        slotTotalEarned: userData.slotTotalEarned || 0,
+        slotJackpots: userData.slotJackpots || 0,
+        slotBigWins: userData.slotBigWins || 0,
+        
+        // Bot-only
+        slotEarnedStars: userData.slotEarnedStars || 0
+      });
+    } catch (err) {
+      console.error("Error fetching slot stats:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  /**
+   * POST /api/slot/spin
+   * Mini-App spin endpoint (uses slotSpins, NOT slotTickets)
+   */
+  router.post("/spin", async (req, res) => {
+    try {
+      const { telegramId } = req.body;
+      
+      const userData = await getUserData(telegramId);
+      
+      if (!userData) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const spins = userData.slotSpins || 0;
+      
+      if (spins <= 0) {
+        return res.status(400).json({ 
+          error: "No spins available",
+          slotSpins: 0
+        });
+      }
+      
+      // Generate random slot result
+      const result = generateMiniAppSlotResult();
+      
+      // Calculate reward
+      let reward = 0;
+      let rewardType = "none";
+      
+      if (result.type === "jackpot") {
+        reward = SLOT_JACKPOT_REWARD;
+        rewardType = "jackpot";
+      } else if (result.type === "bigwin") {
+        reward = 50;
+        rewardType = "bigwin";
+      } else if (result.type === "pair") {
+        reward = SLOT_PAIR_REWARD;
+        rewardType = "pair";
+      }
+      
+      // Update user data
+      const userRef = doc(db, "users", telegramId);
+      await updateDoc(userRef, {
+        // Consume spin
+        slotSpins: increment(-1),
+        
+        // SHARED statistics
+        slotTotalSpins: increment(1),
+        slotWins: reward > 0 ? increment(1) : userData.slotWins || 0,
+        slotTotalEarned: increment(reward),
+        slotJackpots: result.type === "jackpot" ? increment(1) : userData.slotJackpots || 0,
+        slotBigWins: result.type === "bigwin" ? increment(1) : userData.slotBigWins || 0
+      });
+      
+      res.json({
+        success: true,
+        result: result.symbols,
+        reward: reward,
+        rewardType: rewardType,
+        slotSpins: spins - 1,
+        slotTotalSpins: (userData.slotTotalSpins || 0) + 1,
+        slotTotalEarned: (userData.slotTotalEarned || 0) + reward
+      });
+      
+    } catch (err) {
+      console.error("Mini-App spin error:", err);
+      res.status(500).json({ error: "Server error" });
     }
   });
 
   return router;
 }
 
-export default initSlotModule;
+/**
+ * Determine bot slot result from Telegram dice value
+ */
+function getSlotResult(value) {
+  // Telegram values:
+  // 1-4 = Jackpot (three of a kind)
+  // 22, 43, 64 = Pairs
+  
+  const jackpots = [1, 2, 3, 4];
+  const pairs = [22, 43, 64];
+
+  if (jackpots.includes(value)) {
+    return { type: "jackpot", value };
+  }
+  if (pairs.includes(value)) {
+    return { type: "pair", value };
+  }
+  return { type: "loss", value };
+}
+
+/**
+ * Generate random slot result for Mini-App
+ */
+function generateMiniAppSlotResult() {
+  const symbols = ["🍒", "🍋", "🍊", "🍇", "⭐", "💎", "7️⃣"];
+  
+  // Probabilities
+  const rand = Math.random();
+  
+  if (rand < 0.01) {
+    // 1% - Jackpot (three matching)
+    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+    return {
+      type: "jackpot",
+      symbols: [symbol, symbol, symbol]
+    };
+  } else if (rand < 0.05) {
+    // 4% - Big Win (two 7s or diamonds)
+    const special = Math.random() < 0.5 ? "7️⃣" : "💎";
+    return {
+      type: "bigwin",
+      symbols: [special, special, symbols[Math.floor(Math.random() * symbols.length)]]
+    };
+  } else if (rand < 0.15) {
+    // 10% - Pair (two matching)
+    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+    const third = symbols[Math.floor(Math.random() * symbols.length)];
+    return {
+      type: "pair",
+      symbols: [symbol, symbol, third]
+    };
+  } else {
+    // 85% - No win
+    return {
+      type: "loss",
+      symbols: [
+        symbols[Math.floor(Math.random() * symbols.length)],
+        symbols[Math.floor(Math.random() * symbols.length)],
+        symbols[Math.floor(Math.random() * symbols.length)]
+      ]
+    };
+  }
+}
+
+export { router as slotRouter };

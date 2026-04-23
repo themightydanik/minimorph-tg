@@ -1,282 +1,252 @@
-// pvp/pvpGameLogic.js (FIXED - type comparisons)
-import { updateBattle, getBattleById } from "./pvpFirebase.js";
-import { doc, runTransaction } from "firebase/firestore";
+// pvp/pvpGameLogic.js - Game logic for PvP battles
+import { getBattleById, updateBattle, completeBattle } from "./pvpFirebase.js";
 
 /**
- * Инициализация логики PvP батлов
+ * Инициализация игровой логики PvP
  */
 export function initGameLogic({ bot, db }) {
-  bot.action(/^pvp_roll_(.+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const battleId = ctx.match[1];
-    const battle = await getBattleById(db, battleId);
-    
-    if (!battle) return ctx.reply("⚠️ Battle not found.");
-    
-    const chatId = battle.chatId || ctx.chat?.id;
-    if (!chatId) {
-      console.error("⚠️ No chatId for battle messages");
-      return ctx.reply("⚠️ Battle chat not found. Please contact admin.");
-    }
-
-    // ✅ Проверяем, можно ли кидать кубик
-    if (battle.status !== "in_progress") {
-      return bot.telegram.sendMessage(chatId, "⏳ Battle hasn't started yet!");
-    }
-
-    const user = ctx.from;
-    const userIdStr = user.id.toString(); // 🔒 Преобразуем в строку для сравнения
-
-    // ✅ Проверяем порядок хода (сравниваем строки)
-    if (battle.turn === "initiator" && userIdStr !== battle.initiatorId.toString()) {
-      return bot.telegram.sendMessage(
-        chatId, 
-        `⏳ Wait for your turn. @${battle.initiatorUsername} goes first!`
-      );
-    }
-    if (battle.turn === "opponent" && userIdStr !== battle.opponentId?.toString()) {
-      return bot.telegram.sendMessage(
-        chatId, 
-        `⏳ Wait for your turn. @${battle.opponentUsername} goes next!`
-      );
-    }
-
-    // 🔒 Проверяем, не сделал ли игрок уже ход
-    if (userIdStr === battle.initiatorId.toString() && battle.initiatorRoll) {
-      return ctx.reply("⚠️ You've already rolled the dice!");
-    }
-    if (userIdStr === battle.opponentId?.toString() && battle.opponentRoll) {
-      return ctx.reply("⚠️ You've already rolled the dice!");
-    }
-
-    const roll = Math.floor(Math.random() * 6) + 1;
-    let updateData = {};
-
-    if (userIdStr === battle.initiatorId.toString() && !battle.initiatorRoll) {
-      updateData.initiatorRoll = roll;
-      updateData.turn = "opponent"; // передаём ход оппоненту
-    } else if (userIdStr === battle.opponentId?.toString() && !battle.opponentRoll) {
-      updateData.opponentRoll = roll;
-      updateData.turn = null; // оба сделали ход
-    }
-
-    await updateBattle(db, battleId, updateData);
-
-    await bot.telegram.sendMessage(
-      chatId, 
-      `🎲 @${user.username || user.first_name} rolled the dice and got: ${roll}`
-    );
-
-    // ✅ Проверяем, бросили ли оба игрока
-    const updated = await getBattleById(db, battleId);
-    
-    if (updated.initiatorRoll && updated.opponentRoll) {
-      await finalizeBattle(bot, db, updated, chatId);
-    }
-  });
-}
-
-/**
- * 🏆 Завершение батла с выплатой приза
- */
-async function finalizeBattle(bot, db, battle, chatId) {
-  const initiatorRoll = battle.initiatorRoll;
-  const opponentRoll = battle.opponentRoll;
-  const initiatorUsername = battle.initiatorUsername;
-  const opponentUsername = battle.opponentUsername;
-
-  let winner = null;
-  let winnerId = null;
   
-  if (initiatorRoll > opponentRoll) {
-    winner = initiatorUsername;
-    winnerId = battle.initiatorId;
-  } else if (initiatorRoll < opponentRoll) {
-    winner = opponentUsername;
-    winnerId = battle.opponentId;
-  }
+  // === Обработка выбора игрока в батле ===
+  bot.action(/^battle_choice_(.+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    
+    const battleId = ctx.match[1];
+    const choice = ctx.match[2]; // rock, paper, scissors
+    const userId = ctx.from.id.toString();
 
-  // Обновляем статус батла
-  await updateBattle(db, battle.id, { 
-    status: "finished", 
-    winner: winner || "draw",
-    finishedAt: Date.now()
-  });
+    try {
+      const battle = await getBattleById(db, battleId);
 
-  if (winner) {
-    await bot.telegram.sendMessage(
-      chatId, 
-      `🏆 Winner: @${winner}!\n` +
-      `🎲 @${initiatorUsername}: ${initiatorRoll}\n` +
-      `🎲 @${opponentUsername}: ${opponentRoll}`
-    );
-
-    // 💰 Выплата приза победителю (если есть призовой пул)
-    if (battle.prizePool > 0) {
-      await rewardWinner(db, winnerId, battle.prizePool, battle.id);
-      
-      await bot.telegram.sendMessage(
-        winnerId,
-        `🎉 Congratulations! You won ${battle.prizePool} ⭐ in the battle!\n` +
-        `💰 The prize has been added to your Wallet.`
-      );
-    }
-  } else {
-    // Ничья
-    await bot.telegram.sendMessage(
-      chatId, 
-      `🤝 It's a draw!\n` +
-      `🎲 @${initiatorUsername}: ${initiatorRoll}\n` +
-      `🎲 @${opponentUsername}: ${opponentRoll}`
-    );
-
-    // 💰 При ничьей возвращаем ставки обоим игрокам
-    if (battle.prizePool > 0) {
-      const refund = battle.prizePool / 2;
-      await refundPlayer(db, battle.initiatorId, refund, battle.id, "draw");
-      await refundPlayer(db, battle.opponentId, refund, battle.id, "draw");
-
-      await bot.telegram.sendMessage(
-        battle.initiatorId,
-        `💸 Draw! Your ${refund} ⭐ stake has been refunded to your Wallet.`
-      );
-      await bot.telegram.sendMessage(
-        battle.opponentId,
-        `💸 Draw! Your ${refund} ⭐ stake has been refunded to your Wallet.`
-      );
-    }
-  }
-}
-
-/**
- * 💰 Выплата приза победителю (атомарная транзакция)
- */
-async function rewardWinner(db, winnerId, amount, battleId) {
-  const userRef = doc(db, "users", winnerId.toString());
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const userSnap = await transaction.get(userRef);
-      
-      if (!userSnap.exists()) {
-        throw new Error("Winner not found in database");
+      if (!battle) {
+        return ctx.reply("⚠️ Battle not found.");
       }
 
-      const currentWallet = userSnap.data().wallet || 0;
-      transaction.update(userRef, { 
-        wallet: currentWallet + amount,
-        lastWalletUpdate: Date.now()
-      });
-
-      // 📝 Логируем выплату
-      const transactionRef = doc(db, "transactions", `reward_${battleId}_${Date.now()}`);
-      transaction.set(transactionRef, {
-        type: "pvp_reward",
-        userId: winnerId.toString(),
-        amount,
-        battleId,
-        timestamp: Date.now(),
-        status: "completed"
-      });
-    });
-
-    console.log(`✅ Rewarded ${winnerId} with ${amount} ⭐ from battle ${battleId}`);
-  } catch (err) {
-    console.error(`❌ Failed to reward winner ${winnerId}:`, err);
-  }
-}
-
-/**
- * 💸 Возврат ставки при ничьей (атомарная транзакция)
- */
-async function refundPlayer(db, playerId, amount, battleId, reason) {
-  const userRef = doc(db, "users", playerId.toString());
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const userSnap = await transaction.get(userRef);
-      
-      if (!userSnap.exists()) {
-        throw new Error("Player not found in database");
+      if (battle.status !== "in_progress") {
+        return ctx.reply("⚠️ This battle is not active.");
       }
 
-      const currentWallet = userSnap.data().wallet || 0;
-      transaction.update(userRef, { 
-        wallet: currentWallet + amount,
-        lastWalletUpdate: Date.now()
-      });
+      const isInitiator = userId === battle.initiatorId.toString();
+      const isOpponent = userId === battle.opponentId?.toString();
 
-      // 📝 Логируем возврат
-      const transactionRef = doc(db, "transactions", `refund_${battleId}_${playerId}_${Date.now()}`);
-      transaction.set(transactionRef, {
-        type: "pvp_refund",
-        userId: playerId.toString(),
-        amount,
-        battleId,
-        reason,
-        timestamp: Date.now(),
-        status: "completed"
-      });
-    });
+      if (!isInitiator && !isOpponent) {
+        return ctx.reply("⚠️ You are not part of this battle.");
+      }
 
-    console.log(`✅ Refunded ${playerId} with ${amount} ⭐ (${reason})`);
+      // Сохраняем выбор игрока
+      const updateData = {};
+      if (isInitiator) {
+        if (battle.initiatorChoice) {
+          return ctx.reply("✅ You already made your choice!");
+        }
+        updateData.initiatorChoice = choice;
+        updateData.initiatorReady = true;
+      } else {
+        if (battle.opponentChoice) {
+          return ctx.reply("✅ You already made your choice!");
+        }
+        updateData.opponentChoice = choice;
+        updateData.opponentReady = true;
+      }
+
+      await updateBattle(db, battleId, updateData);
+
+      await ctx.reply(`✅ Choice registered: ${getChoiceEmoji(choice)}`);
+
+      // Проверяем, сделали ли оба игрока выбор
+      const updatedBattle = await getBattleById(db, battleId);
+      
+      if (updatedBattle.initiatorReady && updatedBattle.opponentReady) {
+        await resolveBattle(bot, db, battleId, updatedBattle.chatId);
+      } else {
+        await ctx.reply("⏳ Waiting for opponent's choice...");
+      }
+
+    } catch (err) {
+      console.error("Battle choice error:", err);
+      await ctx.reply("⚠️ Error processing choice. Please try again.");
+    }
+  });
+}
+
+/**
+ * Запускает батл после оплаты обоих игроков
+ */
+export async function startBattle(bot, db, battleId, chatId) {
+  try {
+    const battle = await getBattleById(db, battleId);
+
+    if (!battle) {
+      console.error("Battle not found:", battleId);
+      return;
+    }
+
+    await updateBattle(db, battleId, { status: "in_progress" });
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: "🪨 Rock", callback_data: `battle_choice_${battleId}_rock` },
+          { text: "📄 Paper", callback_data: `battle_choice_${battleId}_paper` },
+          { text: "✂️ Scissors", callback_data: `battle_choice_${battleId}_scissors` }
+        ]
+      ]
+    };
+
+    const message = 
+      `⚔️ BATTLE STARTED!\n\n` +
+      `👤 @${battle.initiatorUsername}\n` +
+      `🆚\n` +
+      `👤 @${battle.opponentUsername}\n\n` +
+      `💰 Prize Pool: ${battle.prizePool} ⭐\n\n` +
+      `🎮 Make your choice:`;
+
+    // Отправляем обоим игрокам
+    try {
+      await bot.telegram.sendMessage(battle.initiatorId, message, { reply_markup: keyboard });
+    } catch (err) {
+      console.error("Error sending to initiator:", err);
+    }
+
+    try {
+      await bot.telegram.sendMessage(battle.opponentId, message, { reply_markup: keyboard });
+    } catch (err) {
+      console.error("Error sending to opponent:", err);
+    }
+
+    // Отправляем в чат лобби если есть
+    if (chatId) {
+      try {
+        await bot.telegram.sendMessage(chatId, 
+          `⚔️ Battle started!\n` +
+          `👤 @${battle.initiatorUsername} 🆚 @${battle.opponentUsername}\n` +
+          `💰 Prize: ${battle.prizePool} ⭐`
+        );
+      } catch (err) {
+        console.error("Error sending to lobby chat:", err);
+      }
+    }
+
   } catch (err) {
-    console.error(`❌ Failed to refund player ${playerId}:`, err);
+    console.error("Start battle error:", err);
   }
 }
 
 /**
- * 🎮 Старт батла
+ * Определяет победителя и завершает батл
  */
-export async function startBattle(bot, db, battleId, chatIdFromCtx) {
-  const battle = await getBattleById(db, battleId);
-  if (!battle) {
-    console.error(`⚠️ Battle ${battleId} not found`);
-    return;
+async function resolveBattle(bot, db, battleId, chatId) {
+  try {
+    const battle = await getBattleById(db, battleId);
+
+    if (!battle) return;
+
+    const result = determineWinner(
+      battle.initiatorChoice,
+      battle.opponentChoice
+    );
+
+    let winnerId = null;
+    let resultMessage = "";
+
+    if (result === "initiator") {
+      winnerId = battle.initiatorId;
+      resultMessage = 
+        `🏆 WINNER: @${battle.initiatorUsername}!\n\n` +
+        `${getChoiceEmoji(battle.initiatorChoice)} beats ${getChoiceEmoji(battle.opponentChoice)}\n\n` +
+        `💰 Prize: ${battle.prizePool} ⭐`;
+    } else if (result === "opponent") {
+      winnerId = battle.opponentId;
+      resultMessage = 
+        `🏆 WINNER: @${battle.opponentUsername}!\n\n` +
+        `${getChoiceEmoji(battle.opponentChoice)} beats ${getChoiceEmoji(battle.initiatorChoice)}\n\n` +
+        `💰 Prize: ${battle.prizePool} ⭐`;
+    } else {
+      resultMessage = 
+        `🤝 IT'S A TIE!\n\n` +
+        `Both chose ${getChoiceEmoji(battle.initiatorChoice)}\n\n` +
+        `💰 Prize pool ${battle.prizePool} ⭐ split between players`;
+      
+      // При ничьей делим приз пополам
+      if (battle.prizePool > 0) {
+        const halfPrize = battle.prizePool / 2;
+        
+        const { doc, getDoc, updateDoc } = await import("firebase/firestore");
+        
+        const initiatorRef = doc(db, "users", battle.initiatorId.toString());
+        const opponentRef = doc(db, "users", battle.opponentId.toString());
+        
+        const [initiatorSnap, opponentSnap] = await Promise.all([
+          getDoc(initiatorRef),
+          getDoc(opponentRef)
+        ]);
+        
+        if (initiatorSnap.exists()) {
+          await updateDoc(initiatorRef, {
+            wallet: (initiatorSnap.data().wallet || 0) + halfPrize
+          });
+        }
+        
+        if (opponentSnap.exists()) {
+          await updateDoc(opponentRef, {
+            wallet: (opponentSnap.data().wallet || 0) + halfPrize
+          });
+        }
+      }
+    }
+
+    // Завершаем батл
+    await completeBattle(db, battleId, winnerId);
+
+    // Отправляем результаты обоим игрокам
+    try {
+      await bot.telegram.sendMessage(battle.initiatorId, resultMessage);
+    } catch (err) {
+      console.error("Error sending result to initiator:", err);
+    }
+
+    try {
+      await bot.telegram.sendMessage(battle.opponentId, resultMessage);
+    } catch (err) {
+      console.error("Error sending result to opponent:", err);
+    }
+
+    // Отправляем в чат лобби
+    if (chatId) {
+      try {
+        await bot.telegram.sendMessage(chatId, resultMessage);
+      } catch (err) {
+        console.error("Error sending result to lobby:", err);
+      }
+    }
+
+  } catch (err) {
+    console.error("Resolve battle error:", err);
   }
+}
 
-  const chatId = battle.chatId || chatIdFromCtx;
-  if (!chatId) {
-    console.error(`⚠️ No chatId to start the battle ${battleId}`);
-    return;
-  }
+/**
+ * Определяет победителя по правилам "камень-ножницы-бумага"
+ */
+function determineWinner(choice1, choice2) {
+  if (choice1 === choice2) return "tie";
 
-  // Для платного батла проверяем оплату
-  if (battle.prizePool > 0 && battle.status !== "paid_by_both") {
-    console.log(`⚠️ Battle ${battleId} cannot start until both players have paid.`);
-    return;
-  }
-
-  // Сохраняем chatId, если ещё нет
-  if (!battle.chatId) {
-    await updateBattle(db, battleId, { chatId });
-  }
-
-  // Обновляем статус и устанавливаем первый ход
-  await updateBattle(db, battleId, { 
-    status: "in_progress", 
-    turn: "initiator",
-    startedAt: Date.now()
-  });
-
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: "🎲 Roll the Dice!", callback_data: `pvp_roll_${battleId}` }],
-    ],
+  const winConditions = {
+    rock: "scissors",
+    paper: "rock",
+    scissors: "paper"
   };
 
-  const prizeInfo = battle.prizePool > 0 
-    ? `💰 Prize Pool: ${battle.prizePool} ⭐` 
-    : "🎯 Playing for fun (no prize)";
+  return winConditions[choice1] === choice2 ? "initiator" : "opponent";
+}
 
-  const message = `
-🔥 The battle has begun!
-
-👤 @${battle.initiatorUsername} vs 👤 @${battle.opponentUsername}
-${prizeInfo}
-
-@${battle.initiatorUsername}, it's your turn first! 🎲
-  `.trim();
-
-  await bot.telegram.sendMessage(chatId, message, { reply_markup: keyboard });
+/**
+ * Возвращает эмодзи для выбора
+ */
+function getChoiceEmoji(choice) {
+  const emojis = {
+    rock: "🪨",
+    paper: "📄",
+    scissors: "✂️"
+  };
+  return emojis[choice] || "❓";
 }

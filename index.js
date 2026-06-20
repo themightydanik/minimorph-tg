@@ -68,6 +68,12 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Webhook endpoint — всегда регистрируем (безусловно)
+// Telegram будет слать сюда updates когда webhook установлен
+app.post('/tgwebhook', (req, res) => {
+  bot.handleUpdate(req.body, res);
+});
+
 // API Routes for Mini-App
 app.use("/api", apiRoutes);
 
@@ -258,49 +264,35 @@ app.use((err, req, res, next) => {
 // START SERVER & BOT
 // ========================================
 
+// ── Запуск сервера и настройка бота ──
 const WEBHOOK_DOMAIN = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || null;
 
-if (WEBHOOK_DOMAIN) {
-  // ── PRODUCTION: Webhook режим (Render / Fly.io) ──
-  // Важно: handler регистрируется ДО app.listen()
-  const webhookPath = `/tgwebhook`; // фиксированный путь (без токена в URL)
-  const webhookUrl  = `${WEBHOOK_DOMAIN}${webhookPath}`;
+app.listen(port, async () => {
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || 'Not configured'}`);
+  console.log(`🤖 Bot: @${BOT_USERNAME}`);
+  console.log(`🔗 Webhook domain: ${WEBHOOK_DOMAIN || 'none (polling mode)'}`);
 
-  // Регистрируем обработчик вебхука
-  app.post(webhookPath, (req, res) => {
-    bot.handleUpdate(req.body, res);
-  });
-
-  app.listen(port, async () => {
-    console.log(`🚀 Server running on port ${port}`);
-    console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || 'Not configured'}`);
-    console.log(`🤖 Bot: @${BOT_USERNAME}`);
-
-    // Устанавливаем вебхук в Telegram
+  if (WEBHOOK_DOMAIN) {
+    // PRODUCTION: устанавливаем webhook
+    const webhookUrl = `${WEBHOOK_DOMAIN}/tgwebhook`;
     try {
       await bot.telegram.setWebhook(webhookUrl);
       console.log(`✅ Webhook set: ${webhookUrl}`);
     } catch (err) {
       console.error('❌ Failed to set webhook:', err.message);
     }
-    console.log('🎰 Slot machine: ACTIVE');
-    console.log('👥 Referral system: ACTIVE');
-    console.log('📊 API routes: ACTIVE');
+  } else {
+    // LOCAL DEV: long polling
+    bot.launch().then(() => {
+      console.log('✅ Bot started (polling — local dev)');
+    });
+  }
+
+  console.log('🎰 Slot machine: ACTIVE');
+  console.log('👥 Referral system: ACTIVE');
+  console.log('📊 API routes: ACTIVE');
 });
-
-} else {
-  // ── LOCAL DEV: Long polling ──
-  app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port} (polling mode)`);
-    console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || 'Not configured'}`);
-    console.log(`🤖 Bot: @${BOT_USERNAME}`);
-  });
-
-  bot.launch().then(() => {
-    console.log('✅ Bot started (polling — local dev)');
-    console.log('🎰 Slot machine: ACTIVE');
-  });
-}
 
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

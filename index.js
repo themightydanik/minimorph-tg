@@ -52,6 +52,14 @@ bot.on("successful_payment", (ctx) => handleSuccessfulPayment(ctx, config));
 const slotRouter = initSlotModule(bot, config);
 app.use("/api/slot", slotRouter);
 
+// Делаем бота доступным в req.app.get('bot') для /api/shop/invoice
+app.set("bot", bot);
+
+// Health check для Render / Fly.io
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', bot: !!process.env.BOT_TOKEN, ts: Date.now() });
+});
+
 // API Routes for Mini-App
 app.use("/api", apiRoutes);
 

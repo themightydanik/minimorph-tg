@@ -250,18 +250,37 @@ app.use((err, req, res, next) => {
 // START SERVER & BOT
 // ========================================
 
-app.listen(port, () => {
+const WEBHOOK_DOMAIN = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || null;
+
+app.listen(port, async () => {
   console.log(`🚀 Server running on port ${port}`);
-  console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || "Not configured"}`);
+  console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || 'Not configured'}`);
   console.log(`🤖 Bot: @${BOT_USERNAME}`);
+
+  if (WEBHOOK_DOMAIN) {
+    // ── PRODUCTION: Webhook режим (Render / Fly.io) ──
+    const webhookPath = `/webhook/${process.env.BOT_TOKEN}`;
+    const webhookUrl  = `${WEBHOOK_DOMAIN}${webhookPath}`;
+
+    // Регистрируем обработчик вебхука в Express
+    app.use(webhookPath, (req, res) => {
+      bot.handleUpdate(req.body, res);
+    });
+
+    // Устанавливаем вебхук в Telegram
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log(`✅ Webhook set: ${webhookUrl}`);
+    console.log('🎰 Slot machine: ACTIVE');
+    console.log('👥 Referral system: ACTIVE');
+    console.log('📊 API routes: ACTIVE');
+  } else {
+    // ── LOCAL DEV: Long polling ──
+    bot.launch().then(() => {
+      console.log('✅ Bot started (polling mode — local dev)');
+      console.log('🎰 Slot machine: ACTIVE');
+    });
+  }
 });
 
-bot.launch().then(() => {
-  console.log("✅ Bot started successfully");
-  console.log("🎰 Slot machine: ACTIVE");
-  console.log("👥 Referral system: ACTIVE");
-  console.log("📊 API routes: ACTIVE");
-});
-
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+process.once('SIGINT',  () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

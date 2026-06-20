@@ -1,0 +1,31 @@
+"# render.yaml — конфигурация деплоя на Render.com
+# Загрузи папку minimorph-tg-master на GitHub, затем подключи в Render
+
+services:
+  - type: web
+    name: minimorph-bot
+    env: node
+    region: frankfurt  # ближайший к EU, можно oregon для US
+    plan: free          # бесплатный план (засыпает после 15 мин неактивности)
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false       # введёшь вручную в Render Dashboard
+      - key: BOT_USERNAME
+        value: MinimorphBot
+      - key: MINIAPP_URL
+        sync: false       # твой Netlify URL
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: SLOT_PRICE_STARS
+        value: 20
+      - key: SLOT_TICKETS_PER_PURCHASE
+        value: 3
+      - key: MINIAPP_SLOT_PRICE
+        value: 30
+      - key: MINIAPP_SPINS_PER_PURCHASE
+        value: 5"

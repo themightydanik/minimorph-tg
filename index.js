@@ -274,14 +274,21 @@ app.listen(port, () => {
 });
 
 // ── Запуск бота (polling) ──
-// Сначала удаляем любой установленный webhook чтобы polling работал
-bot.telegram.deleteWebhook().then(() => {
-  return bot.launch();
-}).then(() => {
-  console.log('✅ Bot started successfully (polling mode)');
-}).catch(err => {
-  console.error('❌ Bot launch error:', err.message);
-});
+async function startBot() {
+  try {
+    console.log('🔄 Deleting webhook...');
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    console.log('✅ Webhook deleted');
+    console.log('🔄 Starting bot polling...');
+    await bot.launch({ dropPendingUpdates: true });
+    console.log('✅ Bot started successfully (polling mode)');
+  } catch (err) {
+    console.error('❌ Bot launch error:', err.message);
+    console.error('❌ Full error:', err);
+  }
+}
+
+startBot();
 
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

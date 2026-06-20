@@ -1,5 +1,6 @@
 // paymentsHandler.js - Payment Handler for Telegram Stars
-import { doc, updateDoc, increment, addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, increment, addDoc, collection, serverTimestamp } from "firebase/firestore";
+// Note: serverTimestamp used in addDoc calls below
 import { db } from "./firebase.js";
 
 /**
@@ -20,10 +21,30 @@ export async function handlePreCheckoutQuery(ctx) {
  */
 export async function handleSuccessfulPayment(ctx, config) {
   try {
-    const { payload } = ctx.message.successful_payment;
+    const payment = ctx.message.successful_payment;
+    const { payload } = payment;
     const telegramId = ctx.from.id.toString();
-    
-    console.log(`💰 Payment received from ${telegramId}, payload: ${payload}`);
+    const chargeId = payment.telegram_payment_charge_id;
+
+    console.log(`💰 Payment received from ${telegramId}, payload: ${payload}, charge: ${chargeId}`);
+
+    // ── IDEMPOTENCY GUARD ──────────────────────────────────────────────
+    // Защита от двойного начисления при повторной доставке вебхука
+    const paymentRef = doc(db, "processed_payments", chargeId);
+    const paymentSnap = await getDoc(paymentRef);
+    if (paymentSnap.exists()) {
+      console.warn(`⚠️ Duplicate payment detected: ${chargeId} — skipping`);
+      await ctx.reply("✅ Payment already processed!");
+      return;
+    }
+    // Сразу помечаем как обработанный (до начисления — race condition protection)
+    await setDoc(paymentRef, {
+      telegramId,
+      payload,
+      chargeId,
+      processedAt: serverTimestamp(),
+    });
+    // ──────────────────────────────────────────────────────────────────
     
     // Route to different handlers based on payload
     if (payload.startsWith("slot_ticket_")) {
@@ -32,6 +53,8 @@ export async function handleSuccessfulPayment(ctx, config) {
       await handleMiniAppSlotPurchase(ctx, config);
     } else if (payload.startsWith("pvp_")) {
       await handlePvPPayment(ctx, config);
+    } else if (payload.startsWith("shop_")) {
+      await handleShopPurchase(ctx, payload, telegramId);
     } else {
       console.warn(`Unknown payment payload: ${payload}`);
       await ctx.reply("✅ Payment received, but type unknown. Contact support.");
@@ -121,6 +144,86 @@ async function handleMiniAppSlotPurchase(ctx, config) {
   } catch (err) {
     console.error("Mini-App slot purchase error:", err);
     await ctx.reply("⚠️ Error adding spins. Please contact support.");
+  }
+}
+
+/**
+ * Handle Shop purchase (Telegram Stars shop items)
+ * payload format: shop_{itemId}_{timestamp}
+ */
+async function handleShopPurchase(ctx, payload, telegramId) {
+  // Извлекаем itemId из payload: shop_energy_boost_s_1234567890
+  // Формат: shop_ + itemId + _ + timestamp
+  // itemId может содержать подчёркивания, поэтому отрезаем последний сегмент (timestamp)
+  const withoutPrefix = payload.replace(/^shop_/, "");
+  const parts = withoutPrefix.split("_");
+  // timestamp — последний элемент (число), itemId — всё остальное
+  parts.pop(); // убираем timestamp
+  const itemId = parts.join("_");
+
+  const SHOP_ITEMS = {
+    energy_boost_s: { energyAmount: 30  },
+    energy_boost_m: { energyAmount: 100 },
+    slot_spins_5:   { spinsAmount: 5    },
+    slot_spins_20:  { spinsAmount: 20   },
+    morph_pack_s:   { morphAmount: 10   },
+    morph_pack_m:   { morphAmount: 30   },
+    vip_boost_24h:  { vipHours: 24      },
+  };
+
+  const item = SHOP_ITEMS[itemId];
+  if (!item) {
+    console.warn(`Unknown shop item: ${itemId}`);
+    await ctx.reply("✅ Payment received. Contact support if item not applied.");
+    return;
+  }
+
+  const userRef = doc(db, "users", telegramId);
+
+  try {
+    // Формируем atomic update
+    const updates = {};
+    let replyText = "✅ Purchase successful!\n\n";
+
+    if (item.energyAmount) {
+      updates["balances.energy"] = increment(item.energyAmount);
+      updates["energy"] = increment(item.energyAmount); // backward compat
+      replyText += `⚡ +${item.energyAmount} Energy added\n`;
+    }
+    if (item.spinsAmount) {
+      updates["slotSpins"] = increment(item.spinsAmount);
+      replyText += `🎰 +${item.spinsAmount} Slot Spins added\n`;
+    }
+    if (item.morphAmount) {
+      updates["balances.morph"] = increment(item.morphAmount);
+      updates["minimaCoins"] = increment(item.morphAmount); // backward compat
+      replyText += `💎 +${item.morphAmount} MORPH added\n`;
+    }
+    if (item.vipHours) {
+      const expiry = Date.now() + item.vipHours * 60 * 60 * 1000;
+      updates["vipBoostExpiry"] = expiry;
+      replyText += `👑 VIP Boost active for ${item.vipHours}h\n`;
+      replyText += `   All rewards ×1.5 until ${new Date(expiry).toUTCString()}\n`;
+    }
+
+    await updateDoc(userRef, updates);
+
+    // Логируем транзакцию
+    await addDoc(collection(db, "transactions"), {
+      type: "shop_purchase",
+      userId: telegramId,
+      itemId,
+      item,
+      timestamp: serverTimestamp(),
+    });
+
+    replyText += "\n📱 Open Minimorph to see your balance!";
+    await ctx.reply(replyText);
+
+    console.log(`✅ Shop purchase: ${telegramId} bought ${itemId}`);
+  } catch (err) {
+    console.error("Shop purchase handler error:", err);
+    await ctx.reply("⚠️ Error applying purchase. Please contact support.");
   }
 }
 

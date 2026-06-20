@@ -205,10 +205,26 @@ export const getUserData = async (telegramId) => {
     // Missions
     missions: data.missions || { stats: {} },
     
+    // Season
+    season: data.season || { points: 0, seasonNumber: 1, rank: null },
+
+    // VIP Boost
+    vipBoostExpiry: data.vipBoostExpiry || null,
+
+    // Daily Streak
+    currentStreak: data.currentStreak || 0,
+    lastStreakDate: data.lastStreakDate || null,
+    maxStreak: data.maxStreak || 0,
+
     // Referral
     invitedBy: data.invitedBy || null,
     invitedUsers: data.invitedUsers || [],
-    
+    earned: data.earned || {},
+
+    // Skin / level
+    skin: data.skin || 'default',
+    level: data.level || 1,
+
     // Metadata
     username: data.username || '',
     createdAt: data.createdAt || Date.now(),
@@ -260,10 +276,41 @@ export const createUser = async (telegramId, username) => {
     slotTickets: 0,
     slotEarnedStars: 0,
     
+    // Season Points
+    season: {
+      points: 0,
+      seasonNumber: 1,
+      rank: null,
+    },
+
+    // VIP Boost
+    vipBoostExpiry: null,
+
+    // Daily Streak
+    currentStreak: 0,
+    lastStreakDate: null,
+    maxStreak: 0,
+
+    // Tasks
+    completedTasks: {},
+    claimedSocialCredits: 0,
+
     // Referral
     invitedBy: null,
     invitedUsers: [],
-    
+    earned: {},
+    masterRewards: 0,
+
+    // Stars / wallet
+    telegramStars: 0,
+    wallet: null,
+    pendingPayoutStars: 0,
+
+    // Skin
+    skin: 'default',
+    level: 1,
+    tickets: 7,
+
     // Metadata
     username: username || `User-${telegramId}`,
     createdAt: Date.now(),

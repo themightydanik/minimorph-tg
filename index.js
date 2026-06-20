@@ -68,8 +68,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Webhook endpoint — всегда регистрируем (безусловно)
-// Telegram будет слать сюда updates когда webhook установлен
+// Webhook endpoint (на случай если понадобится)
 app.post('/tgwebhook', (req, res) => {
   bot.handleUpdate(req.body, res);
 });
@@ -264,34 +263,24 @@ app.use((err, req, res, next) => {
 // START SERVER & BOT
 // ========================================
 
-// ── Запуск сервера и настройка бота ──
-const WEBHOOK_DOMAIN = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || null;
-
-app.listen(port, async () => {
+// ── Запуск сервера ──
+app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`📱 Mini-App URL: ${process.env.MINIAPP_URL || 'Not configured'}`);
   console.log(`🤖 Bot: @${BOT_USERNAME}`);
-  console.log(`🔗 Webhook domain: ${WEBHOOK_DOMAIN || 'none (polling mode)'}`);
-
-  if (WEBHOOK_DOMAIN) {
-    // PRODUCTION: устанавливаем webhook
-    const webhookUrl = `${WEBHOOK_DOMAIN}/tgwebhook`;
-    try {
-      await bot.telegram.setWebhook(webhookUrl);
-      console.log(`✅ Webhook set: ${webhookUrl}`);
-    } catch (err) {
-      console.error('❌ Failed to set webhook:', err.message);
-    }
-  } else {
-    // LOCAL DEV: long polling
-    bot.launch().then(() => {
-      console.log('✅ Bot started (polling — local dev)');
-    });
-  }
-
   console.log('🎰 Slot machine: ACTIVE');
   console.log('👥 Referral system: ACTIVE');
   console.log('📊 API routes: ACTIVE');
+});
+
+// ── Запуск бота (polling) ──
+// Сначала удаляем любой установленный webhook чтобы polling работал
+bot.telegram.deleteWebhook().then(() => {
+  return bot.launch();
+}).then(() => {
+  console.log('✅ Bot started successfully (polling mode)');
+}).catch(err => {
+  console.error('❌ Bot launch error:', err.message);
 });
 
 process.once('SIGINT',  () => bot.stop('SIGINT'));

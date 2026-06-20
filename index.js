@@ -57,7 +57,15 @@ app.set("bot", bot);
 
 // Health check для Render / Fly.io
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', bot: !!process.env.BOT_TOKEN, ts: Date.now() });
+  res.json({
+    status: 'ok',
+    bot: !!process.env.BOT_TOKEN,
+    webhookUrl: process.env.WEBHOOK_URL || null,
+    renderExternalUrl: process.env.RENDER_EXTERNAL_URL || null,
+    webhookDomain: process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || null,
+    nodeEnv: process.env.NODE_ENV || null,
+    ts: Date.now()
+  });
 });
 
 // API Routes for Mini-App

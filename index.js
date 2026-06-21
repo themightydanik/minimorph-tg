@@ -273,19 +273,45 @@ app.listen(port, () => {
   console.log('📊 API routes: ACTIVE');
 });
 
-// ── Запуск бота (polling) ──
+// ── Запуск бота через нативный polling ──
 async function startBot() {
   try {
-    console.log('🔄 Deleting webhook...');
     await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    console.log('✅ Webhook deleted');
-    console.log('🔄 Starting bot polling...');
-    await bot.launch({ dropPendingUpdates: true });
-    console.log('✅ Bot started successfully (polling mode)');
+    console.log('✅ Webhook cleared');
   } catch (err) {
-    console.error('❌ Bot launch error:', err.message);
-    console.error('❌ Full error:', err);
+    console.error('❌ deleteWebhook error:', err.message);
   }
+
+  let offset = 0;
+  console.log('✅ Bot started (manual polling mode)');
+
+  // Manual polling loop
+  const poll = async () => {
+    try {
+      const updates = await bot.telegram.getUpdates({
+        timeout: 25,
+        limit: 100,
+        offset,
+        allowed_updates: [],
+      });
+
+      for (const update of updates) {
+        offset = update.update_id + 1;
+        try {
+          await bot.handleUpdate(update);
+        } catch (err) {
+          console.error('❌ Update handler error:', err.message);
+        }
+      }
+    } catch (err) {
+      console.error('❌ Polling error:', err.message);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    // Следующий цикл
+    setImmediate(poll);
+  };
+
+  poll();
 }
 
 startBot();
